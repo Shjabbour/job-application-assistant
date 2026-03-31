@@ -1,0 +1,25 @@
+{
+  "name": "job-application-assistant",
+  "version": "1.0.0",
+  "description": "Local CLI assistant for job tracking, application planning, LinkedIn drafts, and Playwright browser capture",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "chat": "tsx src/index.ts chat",
+    "cli": "tsx src/index.ts",
+    "browser:install": "playwright install chromium",
+    "test": "npm run build"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "playwright": "^1.58.2"
+  }
+}
