@@ -11,6 +11,7 @@ import type {
   LinkedInApplyReview,
   Profile,
   SiteFormReview,
+  WorkloadScreening,
 } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -113,12 +114,122 @@ async function getAttachedPage(browser: Browser): Promise<Page> {
 
 async function withAttachedPage<T>(callback: (page: Page, browser: Browser) => Promise<T>): Promise<T> {
   const browser = await chromium.connectOverCDP(cdpUrl);
-  const page = await getAttachedPage(browser);
-  return callback(page, browser);
+  try {
+    const page = await getAttachedPage(browser);
+    return await callback(page, browser);
+  } finally {
+    await browser.close().catch(() => undefined);
+  }
 }
 
 function tidy(value: string | null | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function cleanRepeatedText(value: string): string {
+  const trimmed = tidy(value);
+  const half = Math.floor(trimmed.length / 2);
+  if (trimmed.length > 8 && trimmed.length % 2 === 0) {
+    const first = trimmed.slice(0, half).trim();
+    const second = trimmed.slice(half).trim();
+    if (first && second && first === second) {
+      return first;
+    }
+  }
+  return trimmed;
+}
+
+function evaluateWorkloadScreening(input: {
+  title: string;
+  company: string;
+  description: string;
+}): WorkloadScreening {
+  const text = `${input.title} ${input.company} ${input.description}`.toLowerCase();
+
+  const negativeSignals: Array<{ phrase: string; score: number; reason: string }> = [
+    { phrase: "fast-paced", score: 5, reason: "mentions a fast-paced environment" },
+    { phrase: "wear many hats", score: 5, reason: "signals broad unbounded scope" },
+    { phrase: "wearing many hats", score: 5, reason: "signals broad unbounded scope" },
+    { phrase: "high ownership", score: 5, reason: "emphasizes high-ownership expectations" },
+    { phrase: "high impact", score: 5, reason: "emphasizes high-pressure impact language" },
+    { phrase: "mission-driven", score: 2, reason: "signals culture-driven extra effort expectations" },
+    { phrase: "passionate", score: 4, reason: "signals extra-effort culture language" },
+    { phrase: "hardworking", score: 4, reason: "signals extra-effort culture language" },
+    { phrase: "team player", score: 3, reason: "signals collaboration-heavy expectations" },
+    { phrase: "move fast", score: 2, reason: "signals sustained urgency" },
+    { phrase: "thrive in ambiguity", score: 3, reason: "signals unclear scope and shifting priorities" },
+    { phrase: "ambiguity", score: 2, reason: "signals unclear scope" },
+    { phrase: "dynamic environment", score: 2, reason: "signals changing priorities" },
+    { phrase: "changing priorities", score: 2, reason: "signals unstable workload" },
+    { phrase: "cross-functional", score: 5, reason: "signals heavy coordination" },
+    { phrase: "collaborated heavily", score: 5, reason: "signals heavy coordination" },
+    { phrase: "worked closely with many teams", score: 5, reason: "signals heavy coordination" },
+    { phrase: "stakeholder", score: 2, reason: "signals ongoing meetings and alignment work" },
+    { phrase: "executive", score: 1, reason: "signals higher-visibility communication overhead" },
+    { phrase: "mentor", score: 1, reason: "signals leadership overhead" },
+    { phrase: "leadership", score: 1, reason: "signals leadership expectations" },
+    { phrase: "on-call", score: 4, reason: "signals after-hours operational load" },
+    { phrase: "pager", score: 4, reason: "signals after-hours operational load" },
+    { phrase: "incident", score: 2, reason: "signals reactive production work" },
+    { phrase: "24/7", score: 4, reason: "signals always-on support expectations" },
+    { phrase: "startup", score: 2, reason: "signals startup-style workload" },
+    { phrase: "early-stage", score: 5, reason: "signals startup-style workload" },
+    { phrase: "seed stage", score: 5, reason: "signals startup-style workload" },
+    { phrase: "series a", score: 4, reason: "signals startup-style workload" },
+    { phrase: "series b", score: 3, reason: "signals startup-style workload" },
+    { phrase: "founding engineer", score: 5, reason: "signals startup-style workload" },
+    { phrase: "high-growth", score: 4, reason: "signals scaling pressure" },
+    { phrase: "hypergrowth", score: 5, reason: "signals scaling pressure" },
+    { phrase: "zero-to-one", score: 3, reason: "signals heavy greenfield pressure" },
+    { phrase: "0 to 1", score: 3, reason: "signals heavy greenfield pressure" },
+    { phrase: "player-coach", score: 2, reason: "signals mixed IC and management work" },
+    { phrase: "hype", score: 3, reason: "signals hype-company expectations" },
+  ];
+
+  const positiveSignals: Array<{ phrase: string; score: number; reason: string }> = [
+    { phrase: "async", score: -3, reason: "signals lower meeting overhead" },
+    { phrase: "async-first", score: -4, reason: "signals lower meeting overhead" },
+    { phrase: "remote-first", score: -3, reason: "signals remote-first workflow" },
+    { phrase: "written communication", score: -1, reason: "signals async communication" },
+    { phrase: "clear ownership", score: -1, reason: "signals defined scope" },
+    { phrase: "internal tools", score: -3, reason: "signals lower-visibility product work" },
+    { phrase: "b2b saas", score: -2, reason: "signals a more stable B2B SaaS environment" },
+    { phrase: "maintenance", score: -3, reason: "signals lower-intensity sustaining work" },
+    { phrase: "scaling existing systems", score: -4, reason: "signals sustaining work over greenfield pressure" },
+    { phrase: "existing systems", score: -2, reason: "signals less greenfield pressure" },
+    { phrase: "stable", score: -2, reason: "signals steadier environment" },
+    { phrase: "predictable", score: -2, reason: "signals steadier workload" },
+    { phrase: "established product", score: -3, reason: "signals a more mature product environment" },
+    { phrase: "small, experienced team", score: -3, reason: "signals lower process overhead" },
+  ];
+
+  const matchedNegativeSignals = negativeSignals.filter((entry) => text.includes(entry.phrase));
+  const matchedPositiveSignals = positiveSignals.filter((entry) => text.includes(entry.phrase));
+  const score =
+    matchedNegativeSignals.reduce((sum, entry) => sum + entry.score, 0) +
+    matchedPositiveSignals.reduce((sum, entry) => sum + entry.score, 0);
+  const hardRejectPhrases = new Set([
+    "fast-paced",
+    "wear many hats",
+    "wearing many hats",
+    "high ownership",
+    "high impact",
+    "cross-functional",
+    "early-stage",
+    "founding engineer",
+  ]);
+  const hardReject = matchedNegativeSignals.some((entry) => hardRejectPhrases.has(entry.phrase));
+
+  return {
+    pass: !hardReject && score < 4,
+    score,
+    reasons: [
+      ...matchedNegativeSignals.map((entry) => entry.reason),
+      ...matchedPositiveSignals.map((entry) => entry.reason),
+    ],
+    matchedPositiveSignals: matchedPositiveSignals.map((entry) => entry.phrase),
+    matchedNegativeSignals: matchedNegativeSignals.map((entry) => entry.phrase),
+  };
 }
 
 function extractCompensation(text: string): {
@@ -458,11 +569,8 @@ export async function collectAttachedLinkedInJobs(): Promise<JobCollectionItem[]
       const url = tidy(href ? new URL(href, page.url()).toString() : "");
       if (!url || !url.includes("/jobs/view/") || seen.has(url)) continue;
 
-      const text = tidy(await card.textContent().catch(() => ""));
-      const title = text
-        .replace(/with verification/gi, "")
-        .replace(/\s+/g, " ")
-        .trim();
+      const text = cleanRepeatedText((await card.textContent().catch(() => "")) ?? "");
+      const title = text.replace(/with verification/gi, "").trim();
 
       seen.add(url);
       jobs.push({
@@ -484,6 +592,160 @@ export async function openAttachedJob(url: string): Promise<void> {
   await withAttachedPage(async (page) => {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
     await page.waitForTimeout(1200);
+  });
+}
+
+export async function triageAttachedVisibleJobs(limit: number): Promise<
+  Array<{
+    title: string;
+    company: string;
+    url: string;
+    action: "saved" | "dismissed" | "skipped";
+    reasons: string[];
+    score: number;
+  }>
+> {
+  return withAttachedPage(async (page) => {
+    await page.waitForTimeout(1200);
+    const cardLinks = page.locator('a[href*="/jobs/view/"]');
+    const count = Math.min(await cardLinks.count(), Math.max(limit * 2, limit));
+    const seen = new Set<string>();
+    const targets: string[] = [];
+
+    for (let index = 0; index < count && targets.length < limit; index += 1) {
+      const href = await cardLinks.nth(index).getAttribute("href").catch(() => "");
+      const url = tidy(href ? new URL(href, page.url()).toString() : "");
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      targets.push(url);
+    }
+
+    const results: Array<{
+      title: string;
+      company: string;
+      url: string;
+      action: "saved" | "dismissed" | "skipped";
+      reasons: string[];
+      score: number;
+    }> = [];
+
+    for (const url of targets) {
+      const jobIdMatch = url.match(/\/jobs\/view\/(\d+)/);
+      const jobId = jobIdMatch?.[1];
+      if (!jobId) {
+        results.push({
+          title: "Unknown role",
+          company: "Unknown company",
+          url,
+          action: "skipped",
+          reasons: ["Could not determine LinkedIn job id."],
+          score: 0,
+        });
+        continue;
+      }
+
+      const link = page.locator(`a[href*="/jobs/view/${jobId}"]`).first();
+      await link.scrollIntoViewIfNeeded().catch(() => undefined);
+      const clicked = await link.click({ timeout: 10000 }).then(() => true).catch(() => false);
+      if (!clicked) {
+        results.push({
+          title: "Unknown role",
+          company: "Unknown company",
+          url,
+          action: "skipped",
+          reasons: ["Could not open the LinkedIn job card."],
+          score: 0,
+        });
+        continue;
+      }
+
+      await page
+        .locator("h1, .jobs-details-top-card__job-title, .job-details-jobs-unified-top-card__job-title")
+        .first()
+        .waitFor({ timeout: 5000 })
+        .catch(() => undefined);
+      await page.waitForTimeout(800);
+
+      const title =
+        cleanRepeatedText(
+          await page
+            .locator("h1, .jobs-details-top-card__job-title, .job-details-jobs-unified-top-card__job-title")
+            .first()
+            .textContent()
+            .catch(() => "") ?? "",
+        ) || "Untitled role";
+      const company =
+        cleanRepeatedText(
+          await page
+            .locator(
+              ".job-details-jobs-unified-top-card__company-name, .jobs-unified-top-card__company-name, [data-test-company-name], .job-details-jobs-unified-top-card__company-name a",
+            )
+            .first()
+            .textContent()
+            .catch(() => "") ?? "",
+        ) || "Unknown company";
+      const linkedInDraft = await extractFromPage(page, "linkedin");
+      const workloadScreening = evaluateWorkloadScreening({
+        title,
+        company,
+        description: linkedInDraft.description,
+      });
+
+      if (!workloadScreening.pass) {
+        const dismissed = await page.evaluate((id) => {
+          const linkEl = document.querySelector(`a[href*="/jobs/view/${id}"]`);
+          const card = linkEl?.closest(".job-card-container");
+          const button = card?.querySelector('button[aria-label*="Dismiss"]') as HTMLButtonElement | null;
+          if (!button) return false;
+          button.click();
+          return true;
+        }, jobId).catch(() => false);
+
+        results.push({
+          title,
+          company,
+          url,
+          action: dismissed ? "dismissed" : "skipped",
+          reasons: workloadScreening.reasons,
+          score: workloadScreening.score,
+        });
+        await page.waitForTimeout(800);
+        continue;
+      }
+
+      const saveButton = page
+        .locator("button.jobs-save-button")
+        .filter({ hasText: /save/i })
+        .first();
+      const saveText = tidy(await saveButton.textContent().catch(() => ""));
+      const canSave = await saveButton.isVisible().catch(() => false);
+
+      if (!canSave || /unsave|saved/i.test(saveText)) {
+        results.push({
+          title,
+          company,
+          url,
+          action: "skipped",
+          reasons: ["Role passed the screen but the save button was not available or was already saved."],
+          score: workloadScreening.score,
+        });
+        continue;
+      }
+
+      const saved = await saveButton.click({ timeout: 10000 }).then(() => true).catch(() => false);
+      results.push({
+        title,
+        company,
+        url,
+        action: saved ? "saved" : "skipped",
+        reasons: workloadScreening.reasons,
+        score: workloadScreening.score,
+      });
+      await page.waitForTimeout(800);
+    }
+
+    await saveBrowserArtifact("linkedin-triage-results", results);
+    return results;
   });
 }
 
@@ -612,11 +874,11 @@ async function clickExternalApplyControl(page: Page): Promise<Page | null> {
     const popup = await popupPromise;
     if (popup) {
       await popup.waitForLoadState("domcontentloaded").catch(() => undefined);
-      await popup.waitForTimeout(2500);
+      await popup.waitForTimeout(1200);
       return popup;
     }
 
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(1200);
     return page;
   }
 
@@ -1046,20 +1308,37 @@ export async function processAttachedExternalJobFromPreview(
     );
     await card.scrollIntoViewIfNeeded().catch(() => undefined);
     await card.click({ timeout: 10000 });
-    await page.waitForTimeout(2500);
+    await page
+      .locator("h1, .jobs-details-top-card__job-title, .job-details-jobs-unified-top-card__job-title")
+      .first()
+      .waitFor({ timeout: 5000 })
+      .catch(() => undefined);
+    await page.waitForTimeout(800);
 
     const sourceJobTitle =
-      tidy(await page.locator("h1").first().textContent().catch(() => "")) || "Untitled role";
+      cleanRepeatedText(
+        await page
+          .locator("h1, .jobs-details-top-card__job-title, .job-details-jobs-unified-top-card__job-title")
+          .first()
+          .textContent()
+          .catch(() => "") ?? "",
+      ) || "Untitled role";
     const sourceCompany =
-      tidy(
+      cleanRepeatedText(
         await page
           .locator(
-            ".job-details-jobs-unified-top-card__company-name, .jobs-unified-top-card__company-name, [data-test-company-name]",
+            ".job-details-jobs-unified-top-card__company-name, .jobs-unified-top-card__company-name, [data-test-company-name], .job-details-jobs-unified-top-card__company-name a",
           )
           .first()
           .textContent()
-          .catch(() => ""),
+          .catch(() => "") ?? "",
       ) || "Unknown company";
+    const linkedInDraft = await extractFromPage(page, "linkedin");
+    const workloadScreening = evaluateWorkloadScreening({
+      title: sourceJobTitle,
+      company: sourceCompany,
+      description: linkedInDraft.description,
+    });
     const compensation = await extractLinkedInCompensation(page);
 
     let destinationUrl = await getExternalApplyLink(page);
@@ -1083,6 +1362,7 @@ export async function processAttachedExternalJobFromPreview(
         sourceCompany,
         compensationText: compensation.compensationText,
         estimatedMaxAnnualCompensation: compensation.estimatedMaxAnnualCompensation,
+        workloadScreening,
         destinationUrl: targetPage.url(),
         destinationTitle: tidy(await targetPage.title()),
         externalApplyFound: false,
@@ -1096,7 +1376,7 @@ export async function processAttachedExternalJobFromPreview(
 
     if (targetPage.url() !== destinationUrl) {
       await targetPage.goto(destinationUrl, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => undefined);
-      await targetPage.waitForTimeout(2500);
+      await targetPage.waitForTimeout(1200);
     }
 
     const result: ExternalApplyResult = {
@@ -1105,6 +1385,7 @@ export async function processAttachedExternalJobFromPreview(
       sourceCompany,
       compensationText: compensation.compensationText,
       estimatedMaxAnnualCompensation: compensation.estimatedMaxAnnualCompensation,
+      workloadScreening,
       destinationUrl: targetPage.url(),
       destinationTitle: tidy(await targetPage.title()),
       externalApplyFound: true,
@@ -1117,7 +1398,7 @@ export async function processAttachedExternalJobFromPreview(
       await targetPage.close().catch(() => undefined);
     } else if (page.url() !== collectionUrl) {
       await page.goto(collectionUrl, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => undefined);
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(1000);
     }
 
     await saveBrowserArtifact("external-apply-preview-result", result);

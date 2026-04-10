@@ -1,5 +1,5 @@
 $profileDir = Join-Path $PSScriptRoot ".chrome-debug-profile"
-$url = "https://www.linkedin.com/login"
+$url = "https://www.linkedin.com/jobs/collections/remote-jobs/"
 
 New-Item -ItemType Directory -Force $profileDir | Out-Null
 

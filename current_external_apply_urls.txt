@@ -1,0 +1,10 @@
+Employer-site apply URLs captured from LinkedIn on 2026-04-04
+
+1. Senior Software Engineer (Backend Python)
+Company: Voxel51
+LinkedIn URL: https://www.linkedin.com/jobs/view/4385391988/
+Employer Apply URL: https://voxel51.com/jd?4652946005&gh_jid=4652946005&gh_src=rwra4q
+Compensation: $180K - $220K
+
+Source artifact:
+- data/browser/external-apply-preview-result-2026-04-04T06-24-28-283Z.json

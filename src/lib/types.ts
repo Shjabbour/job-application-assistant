@@ -82,12 +82,21 @@ export type SiteFormReview = {
   notes: string[];
 };
 
+export type WorkloadScreening = {
+  pass: boolean;
+  score: number;
+  reasons: string[];
+  matchedPositiveSignals: string[];
+  matchedNegativeSignals: string[];
+};
+
 export type ExternalApplyResult = {
   sourceJobUrl: string;
   sourceJobTitle: string;
   sourceCompany?: string;
   compensationText?: string;
   estimatedMaxAnnualCompensation?: number | null;
+  workloadScreening?: WorkloadScreening;
   destinationUrl: string;
   destinationTitle: string;
   externalApplyFound: boolean;

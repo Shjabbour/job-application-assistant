@@ -1,0 +1,108 @@
+Interview Notes
+
+Goal
+Present the startup period as real engineering experience, stay honest about ongoing involvement, and screen for remote software roles with low meetings, clear scope, and predictable workload.
+
+Core Framing
+- I spent the last few years building and shipping production software through my startup and consulting work.
+- That work gave me broad hands-on experience across frontend, backend, databases, deployment, and infrastructure.
+- I am now looking for a stable software engineering role where I can focus on delivering strong technical work in a remote environment.
+- I work best in roles with clear ownership, steady execution, and minimal overhead.
+
+How To Explain The Startup Gap
+
+Short version
+I was not out of the workforce. I was building software full-time through my startup and consulting work, shipping production systems and handling implementation end-to-end.
+
+Longer version
+Over the last few years, I focused on building software through my startup and consulting work rather than taking a traditional salaried role. The work was hands-on and practical: building product features, backend systems, data workflows, cloud infrastructure, and deployment pipelines. It gave me strong end-to-end engineering experience and a high level of independence.
+
+If they ask why it was not a traditional job
+I chose to spend that time building directly. It was a real operating environment with production systems, real users, and real delivery pressure, so the experience translated well to a software engineering role.
+
+How To Frame Ongoing Startup Work Honestly
+
+Best default answer
+The startup is at a stage where day-to-day work is more contained, and I am looking for a stable engineering role as my primary focus. I am comfortable managing my time, and I take delivery commitments seriously.
+
+If they ask whether you will still be involved
+Yes, to a limited extent. I still have some involvement, but I am looking for a full-time role and I would treat it as my primary professional commitment. I am careful about scope and I would not take on anything that interferes with delivery.
+
+If they push on conflict or distraction
+I understand the concern. What matters is whether I can deliver consistently, and that has been the pattern in my work. I am used to managing responsibilities carefully, and I would only commit to a role if I knew I could support it properly.
+
+What not to say
+- Do not say you want a job so you can do very little work.
+- Do not say the job is mainly to fund the startup.
+- Do not say you plan to keep working heavily on the startup during work hours.
+- Do not imply the company is a backup plan.
+
+Answers To "Why Are You Looking Now?"
+
+Version 1
+I am looking for a stable software engineering role where I can apply the experience I built through startup and consulting work in a more focused team environment.
+
+Version 2
+I have spent the last few years building software independently, and now I want to bring that experience into a strong remote engineering team with clear scope and long-term stability.
+
+Version 3
+I have had a lot of breadth from building across product and infrastructure, and I am looking for a role where I can contribute consistently as an engineer and own technical work end-to-end.
+
+If they ask why not continue full-time on the startup
+I learned a lot from it, and it gave me strong hands-on experience. At this stage, I want the stability and focus of a dedicated engineering role while continuing to build on that experience professionally.
+
+Answers To Commitment Concerns
+
+If they ask whether you will stay
+Yes. I am looking for a stable role where I can contribute over time, not something temporary. I am being selective because I want a fit that works well for both sides.
+
+If they ask whether you can work with structure again
+Yes. My recent work required a lot of self-direction, but I am comfortable operating within an established engineering team as long as expectations and ownership are clear.
+
+If they ask whether you miss collaboration
+I collaborate well when needed, but I tend to be most effective in environments where engineers can own work directly and move with limited overhead.
+
+Red-Flag Questions To Ask Them
+
+Meetings and communication
+- How many recurring meetings does the engineering team usually have each week?
+- Is the team mostly async, or does work depend on frequent live discussion?
+- How much uninterrupted build time do engineers typically get during the week?
+
+Scope and work style
+- How is work usually assigned and scoped?
+- Is ownership generally clear at the engineer level, or is work highly shared across the team?
+- What does strong performance look like in this role after the first few months?
+
+Workload and stability
+- How often do priorities change?
+- Is most of the work on existing systems, new feature delivery, or urgent reactive work?
+- How often do engineers need to handle after-hours issues or production incidents?
+
+Management style
+- How do managers usually check in with engineers?
+- How much autonomy do engineers have in planning and executing their work?
+- What tends to block engineers most often on this team?
+
+Green Flags
+- Clear scope and ownership
+- Few recurring meetings
+- Async-first or written communication culture
+- Stable product with predictable priorities
+- Emphasis on reliable delivery over constant urgency
+- Managers who care about outcomes more than visible activity
+
+Red Flags
+- Fast-paced environment
+- Wear many hats
+- Heavy cross-functional alignment
+- Constantly shifting priorities
+- Daily meetings with multiple stakeholder groups
+- High urgency, high visibility, or always-on expectations
+
+General Interview Tone
+- Be direct and calm.
+- Keep answers short unless they ask for detail.
+- Emphasize building, shipping, ownership, and reliability.
+- Do not oversell leadership, management, or hustle.
+- Position yourself as someone who can be trusted with clear work and deliver consistently.

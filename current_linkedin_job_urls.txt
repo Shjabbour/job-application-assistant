@@ -1,0 +1,27 @@
+LinkedIn jobs collected from the current remote-jobs page on 2026-04-04.
+These are the most relevant unique visible roles for the backend / full-stack profile we discussed.
+
+1. Senior Software Engineer (Backend Python)
+https://www.linkedin.com/jobs/view/4385391988/
+
+2. Backend Engineer, Music
+https://www.linkedin.com/jobs/view/4397378559/
+
+3. Backend Engineer
+https://www.linkedin.com/jobs/view/4244887870/
+
+4. Backend Engineer, Core Technology
+https://www.linkedin.com/jobs/view/4372940686/
+
+5. Backend Developer [33003]
+https://www.linkedin.com/jobs/view/4397537962/
+
+6. Software Engineer 5 - Research Data Products
+https://www.linkedin.com/jobs/view/4396267330/
+
+7. Senior/Staff Software Engineer (Backend)
+https://www.linkedin.com/jobs/view/4323643225/
+
+Source artifacts
+- data/browser/linkedin-collection-2026-04-04T05-58-37-403Z.json
+- data/jobs.json

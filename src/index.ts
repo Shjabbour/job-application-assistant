@@ -1,7 +1,7 @@
 import readline from "node:readline/promises";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { stdin as input, stdout as output } from "node:process";
 import { answerChat, buildApplicationPlan, buildFitSummary, buildLinkedInDraft } from "./lib/assistant.js";
@@ -23,6 +23,7 @@ import {
   reviewAttachedLinkedInApplication,
   reviewAttachedCurrentForm,
   reviewCurrentLinkedInApplication,
+  triageAttachedVisibleJobs,
 } from "./lib/browser.js";
 import {
   addJobFromDraft,
@@ -45,14 +46,213 @@ function print(message: string): void {
 }
 
 async function saveExternalBatchUrls(
-  jobs: Array<{ index: number; title: string; sourceUrl: string; destinationUrl: string }>,
-): Promise<string> {
+  jobs: Array<{
+    index: number;
+    title: string;
+    company?: string;
+    sourceUrl: string;
+    destinationUrl: string;
+    compensationText?: string;
+  }>,
+): Promise<{ jsonPath: string; textPath: string }> {
   const outputDir = path.join(process.cwd(), "data", "browser");
   await mkdir(outputDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const filePath = path.join(outputDir, `external-apply-urls-${stamp}.json`);
-  await writeFile(`${filePath}`, `${JSON.stringify(jobs, null, 2)}\n`, "utf8");
-  return filePath;
+  const normalized = jobs
+    .map((job) => ({
+      ...job,
+      title: cleanRepeatedText(job.title),
+      company: cleanRepeatedText(job.company ?? ""),
+      sourceUrl: normalizeLinkedInJobUrl(job.sourceUrl),
+      destinationUrl: tidyUrl(job.destinationUrl),
+    }))
+    .filter((job) => job.sourceUrl && job.destinationUrl);
+
+  const deduped = normalized.filter(
+    (job, index, array) =>
+      array.findIndex(
+        (entry) =>
+          entry.sourceUrl === job.sourceUrl || entry.destinationUrl === job.destinationUrl,
+      ) === index,
+  );
+
+  const jsonPath = path.join(outputDir, `external-apply-urls-${stamp}.json`);
+  const textPath = path.join(outputDir, `external-apply-urls-${stamp}.txt`);
+  await writeFile(`${jsonPath}`, `${JSON.stringify(deduped, null, 2)}\n`, "utf8");
+
+  const lines = [
+    `Employer apply URLs captured on ${new Date().toISOString()}`,
+    "",
+    ...deduped.flatMap((job, index) => [
+      `${index + 1}. ${job.title}`,
+      `Company: ${job.company || "Unknown company"}`,
+      `LinkedIn URL: ${job.sourceUrl}`,
+      `Employer Apply URL: ${job.destinationUrl}`,
+      ...(job.compensationText ? [`Compensation: ${job.compensationText}`] : []),
+      "",
+    ]),
+  ];
+  await writeFile(textPath, `${lines.join("\n").trimEnd()}\n`, "utf8");
+  return { jsonPath, textPath };
+}
+
+function normalizeLinkedInJobUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname.includes("linkedin.com")) {
+      return tidyUrl(url);
+    }
+
+    const match = parsed.pathname.match(/\/jobs\/view\/(\d+)/);
+    if (!match) {
+      return `${parsed.origin}${parsed.pathname}`.replace(/\/$/, "");
+    }
+
+    return `${parsed.origin}/jobs/view/${match[1]}/`;
+  } catch {
+    return tidyUrl(url);
+  }
+}
+
+function tidyUrl(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
+
+function cleanRepeatedText(value: string): string {
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  const half = Math.floor(trimmed.length / 2);
+  if (trimmed.length > 8 && trimmed.length % 2 === 0) {
+    const first = trimmed.slice(0, half).trim();
+    const second = trimmed.slice(half).trim();
+    if (first && second && first === second) {
+      return first;
+    }
+  }
+  return trimmed;
+}
+
+type ExternalUrlArtifact = {
+  sourceJobUrl: string;
+  sourceJobTitle: string;
+  sourceCompany?: string;
+  compensationText?: string;
+  destinationUrl: string;
+  destinationTitle?: string;
+  externalApplyFound: boolean;
+  workloadScreening?: {
+    pass: boolean;
+    score: number;
+    reasons: string[];
+    matchedPositiveSignals: string[];
+    matchedNegativeSignals: string[];
+  };
+};
+
+function inferCompanyName(company: string | undefined, destinationUrl: string, destinationTitle?: string): string {
+  const cleaned = cleanRepeatedText(company ?? "");
+  if (cleaned) {
+    return cleaned;
+  }
+
+  const title = cleanRepeatedText(destinationTitle ?? "");
+  const titleMatch =
+    title.match(/\bat\s+([A-Z][\w&.\- ]+)$/i) ||
+    title.match(/^([A-Z][\w&.\- ]+)\s+-\s+/);
+  if (titleMatch?.[1]) {
+    return cleanRepeatedText(titleMatch[1]);
+  }
+
+  try {
+    const parsed = new URL(destinationUrl);
+    const host = parsed.hostname.replace(/^www\./, "");
+    const greenhouse = host.match(/^job-boards\.greenhouse\.io$/i);
+    if (greenhouse) {
+      const segment = parsed.pathname.split("/").filter(Boolean)[0];
+      if (segment) {
+        return segment.charAt(0).toUpperCase() + segment.slice(1);
+      }
+    }
+
+    const lever = host.match(/^jobs\.lever\.co$/i);
+    if (lever) {
+      const segment = parsed.pathname.split("/").filter(Boolean)[0];
+      if (segment) {
+        return segment.charAt(0).toUpperCase() + segment.slice(1);
+      }
+    }
+
+    const root = host.split(".")[0];
+    if (root) {
+      return root.charAt(0).toUpperCase() + root.slice(1);
+    }
+  } catch {
+    return "";
+  }
+
+  return "";
+}
+
+async function exportExternalApplyUrlsFromArtifacts(): Promise<void> {
+  const browserDir = path.join(process.cwd(), "data", "browser");
+  const entries = await readdir(browserDir).catch(() => []);
+  const previewFiles = entries
+    .filter((name) => name.startsWith("external-apply-preview-result-") && name.endsWith(".json"))
+    .sort();
+
+  if (previewFiles.length === 0) {
+    print("No external apply preview artifacts were found.");
+    return;
+  }
+
+  const collected: Array<{
+    index: number;
+    title: string;
+    company?: string;
+    sourceUrl: string;
+    destinationUrl: string;
+    compensationText?: string;
+  }> = [];
+  const filteredOut: Array<{ title: string; company: string; reasons: string[]; score: number }> = [];
+
+  for (const [index, fileName] of previewFiles.entries()) {
+    const fullPath = path.join(browserDir, fileName);
+    const raw = await readFile(fullPath, "utf8").catch(() => "");
+    if (!raw) continue;
+
+    const parsed = JSON.parse(raw) as ExternalUrlArtifact;
+    if (!parsed.externalApplyFound) continue;
+    const company = inferCompanyName(parsed.sourceCompany, parsed.destinationUrl, parsed.destinationTitle);
+    if (parsed.workloadScreening && !parsed.workloadScreening.pass) {
+      filteredOut.push({
+        title: parsed.sourceJobTitle,
+        company,
+        reasons: parsed.workloadScreening.reasons,
+        score: parsed.workloadScreening.score,
+      });
+      continue;
+    }
+
+    collected.push({
+      index: index + 1,
+      title: parsed.sourceJobTitle,
+      company,
+      sourceUrl: parsed.sourceJobUrl,
+      destinationUrl: parsed.destinationUrl,
+      compensationText: parsed.compensationText,
+    });
+  }
+
+  if (collected.length === 0) {
+    print("No external employer URLs were found in saved preview artifacts.");
+    return;
+  }
+
+  const paths = await saveExternalBatchUrls(collected);
+  print(`Saved employer URLs JSON: ${paths.jsonPath}`);
+  print(`Saved employer URLs TXT: ${paths.textPath}`);
+  if (filteredOut.length > 0) {
+    print(`Filtered out ${filteredOut.length} higher-overhead roles based on workload signals.`);
+  }
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -347,94 +547,138 @@ async function browserProcessVisibleJobs(): Promise<void> {
 }
 
 async function browserProcessVisibleExternalJobs(): Promise<void> {
+  await exportExternalApplyUrlsFromArtifacts().catch(() => undefined);
   const requestedLimit = Number(process.env.JAA_BATCH_LIMIT || "10");
   const safeLimit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : 10;
   const requestedPages = Number(process.env.JAA_PAGE_LIMIT || "1");
   const pageLimit = Number.isFinite(requestedPages) && requestedPages > 0 ? requestedPages : 1;
-  const capturedUrls: Array<{ index: number; title: string; sourceUrl: string; destinationUrl: string }> =
-    [];
+  const capturedUrls: Array<{
+    index: number;
+    title: string;
+    company?: string;
+    sourceUrl: string;
+    destinationUrl: string;
+    compensationText?: string;
+  }> = [];
   let processedCount = 0;
 
-  for (let pageNumber = 1; pageNumber <= pageLimit && processedCount < safeLimit; pageNumber += 1) {
-    const collection = await collectAttachedLinkedInJobs();
-    const unique = collection.filter(
-      (job, index, array) => array.findIndex((entry) => entry.url === job.url) === index,
-    );
+  try {
+    for (let pageNumber = 1; pageNumber <= pageLimit && processedCount < safeLimit; pageNumber += 1) {
+      const collection = await collectAttachedLinkedInJobs();
+      const unique = collection.filter(
+        (job, index, array) => array.findIndex((entry) => entry.url === job.url) === index,
+      );
 
-    if (unique.length === 0) {
-      print(`No visible jobs were found on page ${pageNumber}.`);
-      break;
-    }
-
-    const remaining = safeLimit - processedCount;
-    const limit = Math.min(unique.length, remaining);
-    print(`Processing page ${pageNumber}/${pageLimit}, ${limit} jobs from LinkedIn previews.`);
-
-    for (let index = 0; index < limit; index += 1) {
-      const job = unique[index];
-      print(`\n[${processedCount + 1}/${safeLimit}] ${job.title}`);
-      await clickAttachedLinkedInPreview(index).catch(() => undefined);
-      const result = await processAttachedExternalJobFromPreview(index).catch((error) => {
-        print(`Failed: ${error instanceof Error ? error.message : "unknown error"}`);
-        return null;
-      });
-
-      processedCount += 1;
-
-      if (!result) {
-        continue;
+      if (unique.length === 0) {
+        print(`No visible jobs were found on page ${pageNumber}.`);
+        break;
       }
 
-      print(`External apply found: ${result.externalApplyFound ? "yes" : "no"}`);
-      print(`Destination: ${result.destinationUrl}`);
-      if (result.compensationText) {
-        print(`Compensation: ${result.compensationText}`);
-      }
-      if (result.sourceCompany && (result.estimatedMaxAnnualCompensation ?? 0) >= 250000) {
-        const saved = await recordHighPayingCompany({
-          company: result.sourceCompany,
-          title: result.sourceJobTitle,
-          sourceJobUrl: result.sourceJobUrl,
-          compensationText:
-            result.compensationText || `$${result.estimatedMaxAnnualCompensation?.toLocaleString()}`,
-          estimatedMaxAnnualCompensation: result.estimatedMaxAnnualCompensation ?? 0,
-          capturedAt: nowIso(),
+      const remaining = safeLimit - processedCount;
+      const limit = Math.min(unique.length, remaining);
+      print(`Processing page ${pageNumber}/${pageLimit}, ${limit} jobs from LinkedIn previews.`);
+
+      for (let index = 0; index < limit; index += 1) {
+        const job = unique[index];
+        print(`\n[${processedCount + 1}/${safeLimit}] ${job.title}`);
+        await clickAttachedLinkedInPreview(index).catch(() => undefined);
+        const result = await processAttachedExternalJobFromPreview(index).catch((error) => {
+          print(`Failed: ${error instanceof Error ? error.message : "unknown error"}`);
+          return null;
         });
-        print(
-          saved
-            ? `Saved high-paying company: ${result.sourceCompany}`
-            : `High-paying company already saved: ${result.sourceCompany}`,
-        );
-      }
-      if (result.externalApplyFound) {
-        capturedUrls.push({
-          index: processedCount,
-          title: result.sourceJobTitle,
-          sourceUrl: result.sourceJobUrl,
-          destinationUrl: result.destinationUrl,
-        });
-      }
-      for (const note of result.notes) {
-        print(`Note: ${note}`);
-      }
-    }
 
-    if (processedCount >= safeLimit || pageNumber >= pageLimit) {
-      break;
-    }
+        processedCount += 1;
 
-    const advanced = await advanceAttachedLinkedInCollectionPage().catch(() => false);
-    if (!advanced) {
-      print("Could not advance to the next LinkedIn jobs page.");
-      break;
+        if (!result) {
+          continue;
+        }
+
+        print(`External apply found: ${result.externalApplyFound ? "yes" : "no"}`);
+        print(`Destination: ${result.destinationUrl}`);
+        if (result.compensationText) {
+          print(`Compensation: ${result.compensationText}`);
+        }
+        if (result.sourceCompany && (result.estimatedMaxAnnualCompensation ?? 0) >= 250000) {
+          const saved = await recordHighPayingCompany({
+            company: result.sourceCompany,
+            title: result.sourceJobTitle,
+            sourceJobUrl: result.sourceJobUrl,
+            compensationText:
+              result.compensationText || `$${result.estimatedMaxAnnualCompensation?.toLocaleString()}`,
+            estimatedMaxAnnualCompensation: result.estimatedMaxAnnualCompensation ?? 0,
+            capturedAt: nowIso(),
+          });
+          print(
+            saved
+              ? `Saved high-paying company: ${result.sourceCompany}`
+              : `High-paying company already saved: ${result.sourceCompany}`,
+          );
+        }
+        if (result.externalApplyFound) {
+          if (result.workloadScreening && !result.workloadScreening.pass) {
+            print(
+              `Filtered out by workload screen (score ${result.workloadScreening.score}): ${result.workloadScreening.reasons.join("; ")}`,
+            );
+            continue;
+          }
+          capturedUrls.push({
+            index: processedCount,
+            title: result.sourceJobTitle,
+            company: result.sourceCompany,
+            sourceUrl: result.sourceJobUrl,
+            destinationUrl: result.destinationUrl,
+            compensationText: result.compensationText,
+          });
+          const paths = await saveExternalBatchUrls(capturedUrls);
+          print(`Saved employer URLs so far: ${paths.textPath}`);
+        }
+        for (const note of result.notes) {
+          print(`Note: ${note}`);
+        }
+      }
+
+      if (processedCount >= safeLimit || pageNumber >= pageLimit) {
+        break;
+      }
+
+      const advanced = await advanceAttachedLinkedInCollectionPage().catch(() => false);
+      if (!advanced) {
+        print("Could not advance to the next LinkedIn jobs page.");
+        break;
+      }
     }
+  } finally {
+    await exportExternalApplyUrlsFromArtifacts().catch(() => undefined);
   }
 
   if (capturedUrls.length > 0) {
-    const filePath = await saveExternalBatchUrls(capturedUrls);
-    print(`Saved employer URLs: ${filePath}`);
+    const paths = await saveExternalBatchUrls(capturedUrls);
+    print(`Saved employer URLs JSON: ${paths.jsonPath}`);
+    print(`Saved employer URLs TXT: ${paths.textPath}`);
   } else {
     print("No employer application URLs were captured.");
+  }
+}
+
+async function browserTriageVisibleJobs(): Promise<void> {
+  const requestedLimit = Number(process.env.JAA_BATCH_LIMIT || "5");
+  const safeLimit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : 5;
+  const results = await triageAttachedVisibleJobs(safeLimit);
+
+  if (results.length === 0) {
+    print("No visible LinkedIn jobs were triaged.");
+    return;
+  }
+
+  for (const [index, result] of results.entries()) {
+    print(
+      [
+        `${index + 1}. ${result.action.toUpperCase()} | ${result.title} @ ${result.company}`,
+        `URL: ${result.url}`,
+        `Score: ${result.score}`,
+        `Reasons: ${result.reasons.join("; ") || "none"}`,
+      ].join("\n"),
+    );
   }
 }
 
@@ -574,6 +818,8 @@ function printHelp(): void {
       "/browser review-attached-form",
       "/browser autofill-attached-form",
       "/browser process-visible-external-jobs",
+      "/browser export-external-apply-urls",
+      "/browser triage-visible-jobs",
       "/browser start-autopilot",
       "/quit",
     ].join("\n"),
@@ -705,6 +951,16 @@ async function chatMode(): Promise<void> {
 
     if (line === "/browser process-visible-external-jobs") {
       await browserProcessVisibleExternalJobs();
+      continue;
+    }
+
+    if (line === "/browser export-external-apply-urls") {
+      await exportExternalApplyUrlsFromArtifacts();
+      continue;
+    }
+
+    if (line === "/browser triage-visible-jobs") {
+      await browserTriageVisibleJobs();
       continue;
     }
 
@@ -867,6 +1123,20 @@ async function main(): Promise<void> {
     if (scope === "browser" && action === "process-visible-external-jobs") {
       rl.close();
       await browserProcessVisibleExternalJobs();
+      process.exit(0);
+      return;
+    }
+
+    if (scope === "browser" && action === "export-external-apply-urls") {
+      rl.close();
+      await exportExternalApplyUrlsFromArtifacts();
+      process.exit(0);
+      return;
+    }
+
+    if (scope === "browser" && action === "triage-visible-jobs") {
+      rl.close();
+      await browserTriageVisibleJobs();
       process.exit(0);
       return;
     }
