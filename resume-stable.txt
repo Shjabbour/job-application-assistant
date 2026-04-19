@@ -1,0 +1,55 @@
+Shadi Jabbour
+Raleigh, NC | (919) 710-0993 | jabboursh@gmail.com | linkedin.com/in/shadijab | github.com/Shjabbour
+
+Software Engineer
+
+Software engineer with experience building and maintaining business applications, internal tools, APIs, and data workflows across web and backend systems. Comfortable improving existing products, resolving production issues, and delivering scoped features in collaborative environments with clear priorities. Background includes TypeScript/JavaScript, Python, React, Node.js, SQL, cloud deployment, and test automation.
+
+Technical Skills
+Languages: JavaScript, TypeScript, Python, Java, SQL
+Frontend: React, Next.js, HTML, CSS
+Backend: Node.js, Express.js, REST APIs, GraphQL
+Database: PostgreSQL, MySQL, MongoDB, Redis, Supabase
+Cloud & Tools: AWS, Docker, Kubernetes, Git, Jenkins, GitLab CI/CD, Terraform, Playwright, pytest, Elasticsearch
+
+Experience
+
+Stealth Startup
+Lead Software Engineer | Jul 2023 - Present
+- Built and maintained production software for retail-focused client use cases.
+- Worked across frontend, backend services, databases, and cloud infrastructure to support feature delivery and day-to-day operations.
+- Improved reliability and deployment workflows through infrastructure updates and automation.
+
+Hurdle Solutions
+Software Consultant | Oct 2019 - Present
+- Built web applications, backend services, and reporting workflows for client projects.
+- Implemented authentication, APIs, and cloud-based deployment setups for production systems.
+- Supported data migrations and analytics workflows used for reporting and forecasting.
+
+IBM
+Software Engineer | Jan 2022 - Jun 2023
+- Built and maintained production applications across frontend, backend, APIs, and server-side systems.
+- Reworked a core application to improve modularity, simplify deployment, and reduce operational friction.
+- Resolved memory and database performance issues, reducing server resource usage by over 50%.
+
+Red Hat
+Software Engineer | May 2021 - Dec 2021
+- Contributed to a data discovery application supporting search, analytics, and self-service data access.
+- Built search features and supported data ingestion workflows for the platform.
+
+North Carolina State University
+Research Assistant | Jan 2021 - May 2021
+- Built Python scripts and data workflows for time-series analysis and forecasting.
+- Developed tooling for data collection, analysis, and cloud API integration.
+
+Cisco
+Software Engineer Intern | May 2018 - Sep 2018
+- Supported data cleaning, aggregation, and reporting workflows.
+- Built frontend tooling for data visualization and interaction.
+
+Education
+
+North Carolina State University
+B.S. in Computer Information Systems | 2021
+
+Languages: English, Arabic, Spanish, French

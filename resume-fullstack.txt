@@ -1,0 +1,65 @@
+Shadi Jabbour
+Raleigh, NC | (919) 283-2470 | jabboursh@gmail.com | linkedin.com/in/shadijab | github.com/Shjabbour
+
+Senior Full-Stack Engineer
+
+Full-stack engineer with experience building and shipping production software across web applications, backend systems, cloud infrastructure, and data platforms. Strong background in owning work end-to-end, from product logic and APIs to deployment, performance, and reliability. Effective in remote environments that value clear scope, steady execution, and minimal oversight.
+
+Technical Skills
+Frontend: JavaScript, TypeScript, React, Next.js
+Backend: Node.js, Express.js, Python, Java, REST APIs, GraphQL
+Database: PostgreSQL, MySQL, MongoDB, Redis, Supabase
+Cloud & DevOps: AWS, GCP, Azure, Docker, Kubernetes, Jenkins, GitLab CI/CD, Terraform
+Tools: Git, Playwright, Selenium, pytest, Elasticsearch
+
+Experience
+
+Stealth Startup
+Lead Developer / CTO | Jul 2023 - Present
+- Built and deployed full-stack software systems for retail-focused client use cases.
+- Owned implementation across product logic, frontend, backend services, databases, and cloud infrastructure.
+- Designed cloud architecture and auto-scaling policies to improve reliability and reduce cost.
+- Set up delivery workflows that improved deployment speed and code quality.
+
+Hurdle Solutions
+Software Consultant | Oct 2019 - Present
+- Built full-stack applications and cloud-based systems for client projects across web, data, and infrastructure.
+- Implemented secure authentication, scalable backend services, and production deployment workflows.
+- Migrated enterprise data systems to cloud platforms while reducing downtime and data-loss risk.
+- Developed dashboards and analytics workflows for reporting, forecasting, and operational insight.
+
+IBM
+Software Engineer | Jan 2022 - Jun 2023
+- Built and maintained web applications across frontend, backend, APIs, and server-side systems.
+- Re-architected a core application to improve modularity, security, and deployment simplicity.
+- Resolved memory and database performance issues, reducing server resource usage by over 50%.
+- Implemented CI/CD pipelines and container-based deployment workflows to improve uptime and release reliability.
+
+Red Hat
+Software Engineer | May 2021 - Dec 2021
+- Built a full-stack data discovery application for search, analytics, and self-service data access.
+- Implemented real-time search and analytics features to improve data usability and retrieval speed.
+- Designed data processing workflows for ingestion into search and analytics platforms.
+
+North Carolina State University
+Research Assistant | Jan 2021 - May 2021
+- Built Python scripts for time-series analysis and forecasting across historical temperature datasets.
+- Developed a data analysis platform with automated collection workflows and cloud API integrations.
+
+Cisco
+Software Engineer Intern | May 2018 - Sep 2018
+- Wrote data cleaning and aggregation workflows to improve dataset quality and analysis.
+- Built frontend tools for data visualization and interaction.
+
+Volunteer Experience
+
+American Red Cross
+Developer Volunteer
+- Built internal application improvements supporting finance, operations, and disaster relief workflows.
+
+Education
+
+North Carolina State University
+B.S. in Computer Information Systems | 2021 | GPA: 3.7
+
+Languages: English, Arabic, Spanish, French

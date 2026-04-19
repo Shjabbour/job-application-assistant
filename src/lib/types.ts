@@ -5,7 +5,13 @@ export type Profile = {
   location: string;
   city: string;
   state: string;
+  postalCode: string;
+  streetAddress: string;
+  addressLine2: string;
   linkedinUrl: string;
+  resumeFilePath: string;
+  coverLetterFilePath: string;
+  resumeTextPath: string;
   resumeSummary: string;
   skills: string[];
   targetRoles: string[];
@@ -13,13 +19,17 @@ export type Profile = {
   yearsOfExperience: string;
 };
 
-export type JobStatus =
-  | "saved"
-  | "researching"
-  | "applying"
-  | "applied"
-  | "interviewing"
-  | "closed";
+export const JOB_STATUSES = [
+  "saved",
+  "researching",
+  "applying",
+  "blocked",
+  "applied",
+  "interviewing",
+  "closed",
+] as const;
+
+export type JobStatus = (typeof JOB_STATUSES)[number];
 
 export type Job = {
   id: string;
@@ -31,6 +41,7 @@ export type Job = {
   description: string;
   notes: string;
   createdAt: string;
+  evaluation?: JobEvaluationSnapshot;
 };
 
 export type ExtractedJobDraft = {
@@ -41,11 +52,37 @@ export type ExtractedJobDraft = {
   url: string;
 };
 
+export type JobEnrichmentResult = {
+  inputUrl: string;
+  normalizedUrl: string;
+  success: boolean;
+  draft: ExtractedJobDraft | null;
+  error?: string;
+};
+
 export type ApplicationField = {
   label: string;
   type: string;
   required: boolean;
 };
+
+export type ApplicationSiteKind =
+  | "generic"
+  | "workday"
+  | "greenhouse"
+  | "lever"
+  | "ashby"
+  | "taleo"
+  | "hirebridge"
+  | "talemetry"
+  | "smartrecruiters"
+  | "workable"
+  | "paycor"
+  | "rippling"
+  | "phenom"
+  | "ukg"
+  | "successfactors"
+  | "oraclehcm";
 
 export type LinkedInApplyReview = {
   url: string;
@@ -72,11 +109,30 @@ export type AutofillResult = {
   skipped: string[];
   nextAction: string;
   stoppedBeforeSubmit: boolean;
+  submitted?: boolean;
+  stopReason?: string;
+  finalUrl?: string;
+  finalTitle?: string;
+  postSubmitDetails?: {
+    bodyText?: string;
+    sessionStorageApplySuccess?: string;
+    candidateInterviewUrl?: string;
+  };
+  debugSteps?: Array<{
+    step: number;
+    url: string;
+    stage: string;
+    nextAction: string;
+    fieldCount: number;
+    fieldPreview: string[];
+  }>;
 };
 
 export type SiteFormReview = {
   url: string;
   title: string;
+  siteKind: ApplicationSiteKind;
+  stage: string;
   fields: ApplicationField[];
   primaryAction: string;
   notes: string[];
@@ -88,6 +144,54 @@ export type WorkloadScreening = {
   reasons: string[];
   matchedPositiveSignals: string[];
   matchedNegativeSignals: string[];
+  profileName?: string;
+  profileSummary?: string;
+};
+
+export const JOB_EVALUATION_DECISIONS = ["saved", "dismissed", "skipped"] as const;
+
+export type JobEvaluationDecision = (typeof JOB_EVALUATION_DECISIONS)[number];
+
+export type JobEvaluationSnapshot = WorkloadScreening & {
+  decision?: JobEvaluationDecision;
+  evaluatedAt?: string;
+  trackedBy?: string;
+  alreadySaved?: boolean;
+};
+
+export type JobEvaluationSignal = {
+  phrase: string;
+  score: number;
+  reason: string;
+  hardReject?: boolean;
+  appliesTo?: "all" | "title" | "company" | "description";
+};
+
+export type JobEvaluationProfile = {
+  name: string;
+  summary: string;
+  saveWhen: string[];
+  avoidWhen: string[];
+  maxScore: number;
+  positiveSignals: JobEvaluationSignal[];
+  negativeSignals: JobEvaluationSignal[];
+};
+
+export type JobEvaluationProfilesState = {
+  activeProfileName: string;
+  profiles: JobEvaluationProfile[];
+};
+
+export type JobEvaluationDecisionRecord = JobEvaluationSnapshot & {
+  id: string;
+  title: string;
+  company: string;
+  url: string;
+  normalizedUrl: string;
+  source: string;
+  descriptionSnippet: string;
+  decision: JobEvaluationDecision;
+  jobId?: string;
 };
 
 export type ExternalApplyResult = {
@@ -99,6 +203,7 @@ export type ExternalApplyResult = {
   workloadScreening?: WorkloadScreening;
   destinationUrl: string;
   destinationTitle: string;
+  siteKind?: ApplicationSiteKind;
   externalApplyFound: boolean;
   autofill: AutofillResult | null;
   review: SiteFormReview | null;

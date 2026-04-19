@@ -4,3 +4,18 @@ dist
 .browser-profile
 .chrome-debug-profile
 data
+tools/scrcpy-win64-*/
+tools/scrcpy-win64-*.zip
+
+# Local runtime noise
+.playwright-mcp/
+*.log
+dashboard-*.png
+workday-preapply.png
+tmp-dashboard-snapshot.json
+current_linkedin_job_urls.txt
+current_external_apply_urls.txt
+/.tmp-docx-inspect
+/.tmp-docx-size
+/.tmp-docx-update
+*.odttf

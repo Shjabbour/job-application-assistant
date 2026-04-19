@@ -1,0 +1,34 @@
+{
+  "name": "job-application-assistant-openclaw",
+  "version": "0.1.0",
+  "description": "OpenClaw skill bundle for continuing this repo's job application workflows.",
+  "author": {
+    "name": "Local Workspace"
+  },
+  "license": "ISC",
+  "keywords": [
+    "openclaw",
+    "codex-plugin",
+    "job-applications",
+    "linkedin",
+    "playwright"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Job Application Assistant",
+    "shortDescription": "Thin OpenClaw wrapper around this repo's CLI and browser automation.",
+    "longDescription": "Uses the existing local dashboard, attached Chrome flow, and browser commands in this repository so OpenClaw can continue job applications without replacing the automation stack.",
+    "developerName": "Local Workspace",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Continue my LinkedIn job applications in this repo.",
+      "Start the dashboard and attached Chrome workflow.",
+      "Review saved jobs and continue the apply flow."
+    ],
+    "brandColor": "#0A66C2"
+  }
+}

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#09111a" />
+    <title>Job Application Assistant</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-glow page-glow-a" aria-hidden="true"></div>
+    <div class="page-glow page-glow-b" aria-hidden="true"></div>
+    <div class="page-shell">
+      <section class="surface command-deck" id="commandDeck">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Command Deck</p>
+            <h2>Read the automation snapshot</h2>
+          </div>
+          <p class="section-note">Use LinkedIn Jobs Tracker for the job list itself. This surface stays on automation health, readiness, and the runner.</p>
+        </div>
+
+        <section id="summaryGrid" class="summary-grid summary-grid--deck"></section>
+      </section>
+
+      <section class="surface workspace-guide" id="workspaceGuide"></section>
+
+      <nav class="surface section-map" aria-label="Dashboard sections">
+        <a class="section-map-link" href="#commandDeck">
+          <span class="section-map-step">Prep</span>
+          <span class="section-map-label">Snapshot</span>
+        </a>
+        <a class="section-map-link" href="#workspaceGuide">
+          <span class="section-map-step">Flow</span>
+          <span class="section-map-label">Tracker bridge</span>
+        </a>
+        <a class="section-map-link" href="#actionPanel">
+          <span class="section-map-step">Control</span>
+          <span class="section-map-label">Tools</span>
+        </a>
+        <a class="section-map-link" href="#supportWorkspace">
+          <span class="section-map-step">Support</span>
+          <span class="section-map-label">Evaluation</span>
+        </a>
+        <a class="section-map-link" href="#formPreparation">
+          <span class="section-map-step">Support</span>
+          <span class="section-map-label">Criteria</span>
+        </a>
+        <a class="section-map-link" href="#answerCaptureWorkspace">
+          <span class="section-map-step">Support</span>
+          <span class="section-map-label">Answers</span>
+        </a>
+        <a class="section-map-link" href="#artifactsFootprint">
+          <span class="section-map-step">Support</span>
+          <span class="section-map-label">Artifacts</span>
+        </a>
+      </nav>
+
+      <section class="surface panel action-workbench" id="actionPanel"></section>
+
+      <section class="surface support-overview-shell" id="supportWorkspace">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Evaluation Workspace</p>
+            <h2>Saved vs dismissed, reasons, and profile control</h2>
+          </div>
+          <p class="section-note">Use this row to review screening decisions, inspect the saved queue, switch profiles, and keep the rest of the filing workflow in view.</p>
+        </div>
+        <div id="supportOverview" class="support-overview-grid"></div>
+      </section>
+
+      <section class="insight-grid">
+        <section class="surface insight-cluster" id="queueIntel">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Screening</p>
+              <h2>Evaluation decisions and queue review</h2>
+            </div>
+            <p class="section-note">See what the save lane kept or dismissed, why it did that, and what is still sitting in the saved queue.</p>
+          </div>
+          <div class="cluster-stack">
+            <section class="panel insight-card" id="activityPanel"></section>
+            <section class="panel insight-card" id="attentionPanel"></section>
+            <section class="panel insight-card" id="companyPanel"></section>
+          </div>
+        </section>
+
+        <div class="insight-side">
+          <section class="surface insight-cluster" id="formPreparation">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Profiles</p>
+                <h2>Criteria editor and autofill profile</h2>
+              </div>
+              <p class="section-note">Edit screening profiles for the save lane, switch the active profile, and keep autofill readiness visible in the same place.</p>
+            </div>
+            <div class="cluster-stack">
+              <section class="panel insight-card" id="profilePanel"></section>
+            </div>
+          </section>
+
+          <section class="surface insight-cluster" id="answerCaptureWorkspace">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Support</p>
+                <h2>Answer capture</h2>
+              </div>
+              <p class="section-note">Review unanswered application questions and save answers back into the local answer map.</p>
+            </div>
+            <div class="cluster-stack">
+              <section class="panel insight-card" id="questionCapturePanel"></section>
+            </div>
+          </section>
+
+          <section class="surface insight-cluster" id="artifactsFootprint">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">Support</p>
+                <h2>Artifacts and modules</h2>
+              </div>
+              <p class="section-note">Saved outputs and the modules that produced them.</p>
+            </div>
+            <div class="cluster-stack">
+              <section class="panel insight-card" id="artifactPanel"></section>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

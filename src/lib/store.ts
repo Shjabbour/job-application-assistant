@@ -1,11 +1,21 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  buildJobDedupKey,
+  canonicalizeJob,
+  cleanRepeatedText,
+  dedupeJobs,
+  normalizeLinkedInJobUrl,
+} from "./job-normalization.js";
 import type {
   ChatMessage,
   ExtractedJobDraft,
   HighPayingCompanyRecord,
   Job,
+  JobEvaluationDecision,
+  JobEvaluationDecisionRecord,
+  JobEvaluationSnapshot,
   Profile,
 } from "./types.js";
 
@@ -18,6 +28,7 @@ const profilePath = path.join(dataDir, "profile.json");
 const jobsPath = path.join(dataDir, "jobs.json");
 const conversationPath = path.join(dataDir, "conversation.json");
 const highPayingCompaniesPath = path.join(dataDir, "high-paying-companies.json");
+const jobEvaluationDecisionsPath = path.join(dataDir, "job-evaluation-decisions.json");
 
 const defaultProfile: Profile = {
   name: "",
@@ -26,7 +37,13 @@ const defaultProfile: Profile = {
   location: "",
   city: "",
   state: "",
+  postalCode: "",
+  streetAddress: "",
+  addressLine2: "",
   linkedinUrl: "",
+  resumeFilePath: "",
+  coverLetterFilePath: "",
+  resumeTextPath: "",
   resumeSummary: "",
   skills: [],
   targetRoles: [],
@@ -55,8 +72,168 @@ async function writeJsonFile<T>(filePath: string, value: T): Promise<void> {
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+function normalizeJobUrl(url: string): string {
+  const trimmed = (url || "").trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  if (trimmed.includes("linkedin.com/jobs/view/")) {
+    return normalizeLinkedInJobUrl(trimmed);
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return trimmed.replace(/\/+$/, "");
+  }
+}
+
+function normalizeStringList(values: unknown): string[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  return [...new Set(values.map((value) => (typeof value === "string" ? cleanRepeatedText(value) : "")).filter(Boolean))];
+}
+
+function normalizeJobEvaluationDecision(
+  value: unknown,
+): JobEvaluationDecision | undefined {
+  return value === "saved" || value === "dismissed" || value === "skipped" ? value : undefined;
+}
+
+function normalizeJobEvaluationSnapshot(
+  value: JobEvaluationSnapshot | null | undefined,
+): JobEvaluationSnapshot | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const normalized: JobEvaluationSnapshot = {
+    pass: Boolean(value.pass),
+    score: typeof value.score === "number" && Number.isFinite(value.score) ? value.score : 0,
+    reasons: normalizeStringList(value.reasons),
+    matchedPositiveSignals: normalizeStringList(value.matchedPositiveSignals),
+    matchedNegativeSignals: normalizeStringList(value.matchedNegativeSignals),
+  };
+
+  const decision = normalizeJobEvaluationDecision(value.decision);
+  if (decision) {
+    normalized.decision = decision;
+  }
+
+  if (typeof value.profileName === "string" && value.profileName.trim()) {
+    normalized.profileName = value.profileName.trim();
+  }
+
+  if (typeof value.profileSummary === "string" && value.profileSummary.trim()) {
+    normalized.profileSummary = value.profileSummary.trim();
+  }
+
+  if (typeof value.evaluatedAt === "string" && value.evaluatedAt.trim()) {
+    normalized.evaluatedAt = value.evaluatedAt.trim();
+  }
+
+  if (typeof value.trackedBy === "string" && value.trackedBy.trim()) {
+    normalized.trackedBy = value.trackedBy.trim();
+  }
+
+  if (typeof value.alreadySaved === "boolean") {
+    normalized.alreadySaved = value.alreadySaved;
+  }
+
+  return normalized;
+}
+
+function summarizeDescriptionSnippet(value: string): string {
+  const normalized = cleanRepeatedText(value).replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  return normalized.length <= 280 ? normalized : `${normalized.slice(0, 279)}...`;
+}
+
+function buildJobEvaluationDecisionId(
+  normalizedUrl: string,
+  title: string,
+  company: string,
+): string {
+  if (normalizedUrl) {
+    return normalizedUrl;
+  }
+
+  const slug = `${company}-${title}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return slug || `decision-${Date.now()}`;
+}
+
+function normalizeJobEvaluationDecisionRecord(
+  record: JobEvaluationDecisionRecord,
+): JobEvaluationDecisionRecord {
+  const snapshot = normalizeJobEvaluationSnapshot(record);
+  const title = cleanRepeatedText(record.title) || "Untitled role";
+  const company = cleanRepeatedText(record.company) || "Unknown company";
+  const url = normalizeJobUrl(record.url);
+  const normalizedUrl = normalizeJobUrl(record.normalizedUrl || record.url);
+  const decision = normalizeJobEvaluationDecision(record.decision) ?? "skipped";
+
+  return {
+    id: buildJobEvaluationDecisionId(normalizedUrl || url, title, company),
+    title,
+    company,
+    url: url || normalizedUrl,
+    normalizedUrl: normalizedUrl || url,
+    source: cleanRepeatedText(record.source) || "unknown",
+    descriptionSnippet: summarizeDescriptionSnippet(record.descriptionSnippet),
+    decision,
+    jobId: typeof record.jobId === "string" && record.jobId.trim() ? record.jobId.trim() : undefined,
+    pass: snapshot?.pass ?? decision === "saved",
+    score: snapshot?.score ?? 0,
+    reasons: snapshot?.reasons ?? [],
+    matchedPositiveSignals: snapshot?.matchedPositiveSignals ?? [],
+    matchedNegativeSignals: snapshot?.matchedNegativeSignals ?? [],
+    profileName: snapshot?.profileName,
+    profileSummary: snapshot?.profileSummary,
+    evaluatedAt: snapshot?.evaluatedAt || new Date().toISOString(),
+    trackedBy: snapshot?.trackedBy,
+    alreadySaved: snapshot?.alreadySaved,
+  };
+}
+
+function buildEvaluationSnapshotFromDecision(
+  decision: JobEvaluationDecisionRecord,
+): JobEvaluationSnapshot {
+  return {
+    pass: decision.pass,
+    score: decision.score,
+    reasons: [...decision.reasons],
+    matchedPositiveSignals: [...decision.matchedPositiveSignals],
+    matchedNegativeSignals: [...decision.matchedNegativeSignals],
+    profileName: decision.profileName,
+    profileSummary: decision.profileSummary,
+    decision: decision.decision,
+    evaluatedAt: decision.evaluatedAt,
+    trackedBy: decision.trackedBy,
+    alreadySaved: decision.alreadySaved,
+  };
+}
+
 export async function getProfile(): Promise<Profile> {
-  return readJsonFile(profilePath, defaultProfile);
+  const saved = await readJsonFile<Partial<Profile>>(profilePath, defaultProfile);
+  return {
+    ...defaultProfile,
+    ...saved,
+    skills: Array.isArray(saved.skills) ? saved.skills : defaultProfile.skills,
+    targetRoles: Array.isArray(saved.targetRoles) ? saved.targetRoles : defaultProfile.targetRoles,
+  };
 }
 
 export async function saveProfile(profile: Profile): Promise<void> {
@@ -64,16 +241,186 @@ export async function saveProfile(profile: Profile): Promise<void> {
 }
 
 export async function getJobs(): Promise<Job[]> {
-  return readJsonFile(jobsPath, []);
+  const saved = await readJsonFile<Job[]>(jobsPath, []);
+  return saved
+    .filter((job): job is Job => Boolean(job && typeof job === "object"))
+    .map((job) =>
+      canonicalizeJob({
+        ...job,
+        evaluation: normalizeJobEvaluationSnapshot(job.evaluation),
+      }),
+    );
 }
 
 export async function saveJobs(jobs: Job[]): Promise<void> {
-  await writeJsonFile(jobsPath, jobs);
+  await writeJsonFile(
+    jobsPath,
+    jobs.map((job) =>
+      canonicalizeJob({
+        ...job,
+        evaluation: normalizeJobEvaluationSnapshot(job.evaluation),
+      }),
+    ),
+  );
+}
+
+export async function getJobEvaluationDecisions(): Promise<JobEvaluationDecisionRecord[]> {
+  const saved = await readJsonFile<JobEvaluationDecisionRecord[]>(jobEvaluationDecisionsPath, []);
+  return saved
+    .filter((record): record is JobEvaluationDecisionRecord => Boolean(record && typeof record === "object"))
+    .map((record) => normalizeJobEvaluationDecisionRecord(record))
+    .sort(
+      (left, right) =>
+        new Date(right.evaluatedAt || 0).getTime() - new Date(left.evaluatedAt || 0).getTime(),
+    );
+}
+
+export async function saveJobEvaluationDecisions(
+  records: JobEvaluationDecisionRecord[],
+): Promise<void> {
+  const normalized = records
+    .map((record) => normalizeJobEvaluationDecisionRecord(record))
+    .sort(
+      (left, right) =>
+        new Date(right.evaluatedAt || 0).getTime() - new Date(left.evaluatedAt || 0).getTime(),
+    );
+  await writeJsonFile(jobEvaluationDecisionsPath, normalized);
+}
+
+export async function dedupeSavedJobs(): Promise<{
+  jobs: Job[];
+  removedCount: number;
+  mergedGroups: number;
+}> {
+  const current = await getJobs();
+  const result = dedupeJobs(current);
+  await saveJobs(result.dedupedJobs);
+  return {
+    jobs: result.dedupedJobs,
+    removedCount: result.removedCount,
+    mergedGroups: result.mergedGroups,
+  };
+}
+
+export async function updateJob(
+  jobId: string,
+  updates: Partial<Pick<Job, "status" | "notes">>,
+): Promise<Job | null> {
+  const jobs = await getJobs();
+  const index = jobs.findIndex((job) => job.id === jobId);
+
+  if (index < 0) {
+    return null;
+  }
+
+  const existing = jobs[index];
+  const updated: Job = {
+    ...existing,
+    ...(updates.status ? { status: updates.status } : {}),
+    ...(typeof updates.notes === "string"
+      ? { notes: updates.notes.replace(/\r\n/g, "\n").trim() }
+      : {}),
+  };
+
+  jobs[index] = updated;
+  await saveJobs(jobs);
+  return updated;
+}
+
+export async function updateJobEvaluation(
+  jobId: string,
+  evaluation: JobEvaluationSnapshot,
+): Promise<Job | null> {
+  const jobs = await getJobs();
+  const index = jobs.findIndex((job) => job.id === jobId);
+
+  if (index < 0) {
+    return null;
+  }
+
+  const normalizedEvaluation = normalizeJobEvaluationSnapshot(evaluation);
+  if (!normalizedEvaluation) {
+    return jobs[index];
+  }
+
+  const updated = canonicalizeJob({
+    ...jobs[index],
+    evaluation: normalizedEvaluation,
+  });
+
+  jobs[index] = updated;
+  await saveJobs(jobs);
+  return updated;
+}
+
+export async function recordJobEvaluationDecision(
+  record: JobEvaluationDecisionRecord,
+): Promise<JobEvaluationDecisionRecord> {
+  const normalizedRecord = normalizeJobEvaluationDecisionRecord(record);
+  const decisions = await getJobEvaluationDecisions();
+  const index = decisions.findIndex(
+    (entry) =>
+      entry.normalizedUrl === normalizedRecord.normalizedUrl ||
+      (entry.url && entry.url === normalizedRecord.url),
+  );
+
+  if (index >= 0) {
+    decisions[index] = {
+      ...decisions[index],
+      ...normalizedRecord,
+      reasons: normalizedRecord.reasons,
+      matchedPositiveSignals: normalizedRecord.matchedPositiveSignals,
+      matchedNegativeSignals: normalizedRecord.matchedNegativeSignals,
+    };
+  } else {
+    decisions.push(normalizedRecord);
+  }
+
+  await saveJobEvaluationDecisions(decisions);
+
+  if (normalizedRecord.jobId) {
+    await updateJobEvaluation(normalizedRecord.jobId, buildEvaluationSnapshotFromDecision(normalizedRecord));
+  }
+
+  return normalizedRecord;
 }
 
 export async function addJobFromDraft(draft: ExtractedJobDraft): Promise<Job> {
   const jobs = await getJobs();
-  const slug = `${draft.company}-${draft.title}`
+  const candidate: Job = canonicalizeJob({
+    id: "",
+    title: draft.title,
+    company: draft.company,
+    url: draft.url,
+    source: draft.source,
+    status: "saved",
+    description: draft.description,
+    notes: "",
+    createdAt: new Date().toISOString(),
+  });
+  const candidateKey = buildJobDedupKey(candidate);
+  const existingIndex = jobs.findIndex((job) => buildJobDedupKey(job) === candidateKey);
+
+  if (existingIndex >= 0) {
+    const existing = canonicalizeJob(jobs[existingIndex]);
+    const merged: Job = {
+      ...existing,
+      title: candidate.title || existing.title,
+      company:
+        candidate.company && candidate.company !== "Unknown company" ? candidate.company : existing.company,
+      url: candidate.url.includes("linkedin.com/jobs/view/") ? candidate.url : existing.url,
+      source: candidate.source || existing.source,
+      description:
+        candidate.description.length > existing.description.length
+          ? candidate.description
+          : existing.description,
+    };
+    jobs[existingIndex] = merged;
+    await saveJobs(jobs);
+    return merged;
+  }
+
+  const slug = `${candidate.company}-${candidate.title}`
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
@@ -81,12 +428,12 @@ export async function addJobFromDraft(draft: ExtractedJobDraft): Promise<Job> {
 
   const job: Job = {
     id: `${slug}-${Date.now().toString().slice(-6)}`,
-    title: draft.title,
-    company: draft.company,
-    url: draft.url,
-    source: draft.source,
+    title: candidate.title,
+    company: candidate.company,
+    url: candidate.url,
+    source: candidate.source,
     status: "saved",
-    description: draft.description,
+    description: candidate.description,
     notes: "",
     createdAt: new Date().toISOString(),
   };
@@ -100,22 +447,16 @@ export async function addJobsFromCollection(
   drafts: Array<{ title: string; company: string; url: string; location: string }>,
 ): Promise<Job[]> {
   const jobs = await getJobs();
-  const existingUrls = new Set(jobs.map((job) => job.url));
+  const existingKeys = new Set(jobs.map((job) => buildJobDedupKey(job)));
   const added: Job[] = [];
 
   for (const draft of drafts) {
-    if (!draft.url || existingUrls.has(draft.url)) {
+    if (!draft.url) {
       continue;
     }
 
-    const slug = `${draft.company}-${draft.title}`
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 36);
-
-    const job: Job = {
-      id: `${slug}-${Date.now().toString().slice(-6)}-${added.length + 1}`,
+    const candidate = canonicalizeJob({
+      id: "",
       title: draft.title,
       company: draft.company || "Unknown company",
       url: draft.url,
@@ -124,11 +465,33 @@ export async function addJobsFromCollection(
       description: "",
       notes: draft.location || "",
       createdAt: new Date().toISOString(),
+    });
+    const candidateKey = buildJobDedupKey(candidate);
+    if (existingKeys.has(candidateKey)) {
+      continue;
+    }
+
+    const slug = `${candidate.company}-${candidate.title}`
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 36);
+
+    const job: Job = {
+      id: `${slug}-${Date.now().toString().slice(-6)}-${added.length + 1}`,
+      title: candidate.title,
+      company: candidate.company,
+      url: candidate.url,
+      source: candidate.source,
+      status: "saved",
+      description: "",
+      notes: candidate.notes,
+      createdAt: new Date().toISOString(),
     };
 
     jobs.push(job);
     added.push(job);
-    existingUrls.add(job.url);
+    existingKeys.add(candidateKey);
   }
 
   await saveJobs(jobs);
