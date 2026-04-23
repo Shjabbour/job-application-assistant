@@ -98,8 +98,8 @@ __CSS__
             <span id="lastUpdated" class="status-text" title="Capture timer">00:00</span>
           </div>
           <div class="tab-strip" role="tablist" aria-label="Question and answer views">
-            <button id="answerTab" class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="answerPanel">Answer</button>
-            <button id="questionTab" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="questionPanel">Question</button>
+            <button id="answerTab" class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="answerPanel" title="Switch to Answer tab (A)">Answer (A)</button>
+            <button id="questionTab" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="questionPanel" title="Switch to Question tab (Q)">Question (Q)</button>
           </div>
           <div class="monitor-dock">
             <button id="overlayToggle" class="overlay-toggle" type="button" aria-expanded="true" title="Capture monitor"></button>
@@ -116,15 +116,15 @@ __CSS__
                 <span>Screen</span>
                 <select id="screenSelect"></select>
               </label>
-              <div id="monitorMap" class="monitor-map" aria-label="Monitor layout"></div>
-              <span class="live-status"><span id="liveDot" class="live-dot"></span><span>Live</span></span>
               <div class="overlay-actions">
-                <button id="answerButton" class="small-button" type="button" title="Generate an answer from current captures (A)">Answer</button>
-                <button id="captureButton" class="small-button" type="button" title="Capture the current screen for this question (C)">Capture</button>
-                <button id="startMonitorButton" class="small-button" type="button" title="Start or restart capture for a new question (N)">New</button>
-                <button id="stopMonitorButton" class="small-button danger" type="button" title="Stop monitoring (Q)">Stop</button>
-                <button id="refreshButton" class="small-button" type="button" title="Refresh now (R)">Refresh</button>
+                <button id="answerButton" class="small-button" type="button" title="Generate an answer from current captures (F)">Answer (F)</button>
+                <button id="captureButton" class="small-button" type="button" title="Capture the current screen for this question (C)">Capture (C)</button>
+                <button id="startMonitorButton" class="small-button" type="button" title="Reset for a new question without capturing (N)">New (N)</button>
+                <button id="stopMonitorButton" class="small-button danger" type="button" title="Stop monitoring (S)">Stop (S)</button>
+                <button id="refreshButton" class="small-button" type="button" title="Refresh now (R)">Refresh (R)</button>
               </div>
+              <span class="live-status" title="Toggle live refresh (T)"><span id="liveDot" class="live-dot"></span><span>Live (T)</span></span>
+              <div id="monitorMap" class="monitor-map" aria-label="Monitor layout"></div>
             </div>
           </div>
         </div>
@@ -133,8 +133,8 @@ __CSS__
       <div class="content-stack">
         <section id="answerPanel" class="answer-pane" role="tabpanel" aria-labelledby="answerTab">
           <div id="answerModeTabs" class="answer-mode-tabs hidden" role="tablist" aria-label="Answer walkthroughs">
-            <button id="firstTryAnswerTab" class="answer-mode-button active" type="button" role="tab" aria-selected="true" aria-controls="answerView">First Try</button>
-            <button id="robustAnswerTab" class="answer-mode-button" type="button" role="tab" aria-selected="false" aria-controls="answerView">Robust</button>
+            <button id="firstTryAnswerTab" class="answer-mode-button active" type="button" role="tab" aria-selected="true" aria-controls="answerView" title="Switch to First Try walkthrough (W)">First Try (W)</button>
+            <button id="robustAnswerTab" class="answer-mode-button" type="button" role="tab" aria-selected="false" aria-controls="answerView" title="Switch to Robust walkthrough (E)">Robust (E)</button>
           </div>
           <div id="answerView" class="markdown answer-markdown">Solution will appear after the question is ready.</div>
           <section id="hintsSection" class="hints-section hidden">
@@ -442,37 +442,32 @@ input {
   display: inline-flex;
   align-items: stretch;
   align-self: center;
-  gap: 0;
+  gap: 4px;
   margin: 0;
-  padding: 0;
+  padding: 3px;
   overflow: hidden;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: #e8eef2;
+  border: 1px solid #9db1bd;
+  border-radius: 10px;
+  background: #dfe9ef;
 }
 
 .tab-button {
-  min-height: 34px;
-  min-width: 96px;
+  min-height: 36px;
+  min-width: 106px;
   margin: 0;
   border: 0;
-  border-right: 1px solid var(--border-strong);
-  border-radius: 0;
+  border-radius: 7px;
   background: transparent;
-  color: var(--muted);
+  color: #3c4f59;
   cursor: pointer;
-  padding: 0 14px;
-  font-size: 13px;
+  padding: 0 16px;
+  font-size: 14px;
   font-weight: 700;
   line-height: 1;
 }
 
-.tab-button:last-child {
-  border-right: 0;
-}
-
 .tab-button:hover {
-  background: #f6f9fa;
+  background: #eef4f7;
   color: var(--text);
 }
 
@@ -484,9 +479,9 @@ input {
 }
 
 .tab-button.active {
-  background: var(--panel);
-  color: var(--accent);
-  box-shadow: inset 0 -2px 0 var(--accent-line);
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.18);
 }
 
 .content-stack {
@@ -752,6 +747,10 @@ input {
   background: #f7fbfa;
 }
 
+.md-section-robust-answer {
+  background: #f7fbfa;
+}
+
 .md-section-code {
   background: #fbfcfd;
 }
@@ -879,7 +878,7 @@ input {
   display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
   min-width: 0;
 }
@@ -937,8 +936,10 @@ input {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  flex: 1 1 auto;
-  min-width: 0;
+  margin-left: auto;
+  flex: 0 0 auto;
+  min-width: 640px;
+  max-width: 100%;
 }
 
 .overlay-toggle {
@@ -975,6 +976,7 @@ input {
   box-shadow: none;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   min-width: 0;
 }
@@ -1018,25 +1020,27 @@ input {
 .field select {
   width: 100%;
   min-width: 0;
-  min-height: 36px;
+  min-height: 34px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #ffffff;
   color: var(--text);
-  padding: 0 8px;
+  padding: 0 10px;
+  font-size: 13px;
 }
 
 .monitor-map {
-  flex: 0 0 320px;
+  display: block;
+  flex: 0 0 auto;
   position: relative;
   width: 320px;
   min-width: 260px;
   max-width: 360px;
   height: 38px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: #ffffff;
-  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
 }
 
 .monitor-map:empty {
@@ -1096,11 +1100,11 @@ input {
 
 .overlay-actions {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 6px;
-  min-width: 240px;
+  min-width: 0;
 }
 
 .overlay-actions .small-button {
@@ -1148,13 +1152,12 @@ input {
   }
 
   .tab-strip {
-    align-self: stretch;
-    width: 100%;
+    align-self: flex-start;
+    width: auto;
   }
 
   .tab-button {
-    flex: 1 1 0;
-    min-width: 0;
+    min-width: 96px;
   }
 
   .answer-mode-button {
@@ -1164,6 +1167,9 @@ input {
 
   .monitor-dock {
     align-items: flex-start;
+    margin-left: 0;
+    min-width: 0;
+    width: 100%;
   }
 
   .overlay-panel {
@@ -1177,6 +1183,12 @@ input {
   .live-status,
   .overlay-actions {
     margin-top: 8px;
+  }
+
+  .field {
+    width: 100%;
+    max-width: 420px;
+    flex: 1 1 auto;
   }
 
   .monitor-map {
@@ -1215,6 +1227,7 @@ const JS = String.raw`var state = {
   activeTab: 'answer',
   activeAnswerMode: 'firstTry',
   currentRun: null,
+  newQuestionPending: false,
 };
 
 var elements = {};
@@ -1276,6 +1289,19 @@ function displayMapText(display) {
   return 'S' + (display ? display.id : '');
 }
 
+function selectMonitorByIndex(index) {
+  if (!elements.screenSelect || elements.screenSelect.disabled) {
+    return false;
+  }
+  if (!Number.isFinite(index) || index < 0 || index >= state.displays.length) {
+    return false;
+  }
+
+  elements.screenSelect.value = String(state.displays[index].id);
+  elements.screenSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  return true;
+}
+
 function renderMonitorMap() {
   if (!elements.monitorMap) {
     return;
@@ -1305,8 +1331,9 @@ function renderMonitorMap() {
     ? String(state.monitor.screenId)
     : '';
 
-  state.displays.forEach(function (display) {
+  state.displays.forEach(function (display, index) {
     var screenId = String(display.id);
+    var monitorHotkey = index < 9 ? String(index + 1) : '';
     var button = document.createElement('button');
     var width = Math.max(50, Math.floor(display.width * scale) - 1);
     var height = Math.max(28, Math.floor(display.height * scale) - 1);
@@ -1319,15 +1346,12 @@ function renderMonitorMap() {
     button.style.top = Math.round(offsetY + (display.y - minY) * scale) + 'px';
     button.style.width = width + 'px';
     button.style.height = height + 'px';
-    button.textContent = displayMapText(display);
-    button.title = displayOptionLabel(display);
-    button.setAttribute('aria-label', displayOptionLabel(display));
+    button.textContent = displayMapText(display) + (monitorHotkey ? ' (' + monitorHotkey + ')' : '');
+    var monitorTitle = displayOptionLabel(display) + (monitorHotkey ? ' (' + monitorHotkey + ')' : '');
+    button.title = monitorTitle;
+    button.setAttribute('aria-label', monitorTitle);
     button.addEventListener('click', function () {
-      if (!elements.screenSelect || elements.screenSelect.disabled) {
-        return;
-      }
-      elements.screenSelect.value = screenId;
-      elements.screenSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      selectMonitorByIndex(index);
     });
     elements.monitorMap.appendChild(button);
   });
@@ -1393,6 +1417,7 @@ function renderMarkdown(markdown, options) {
 
   options = options || {};
   var sectioned = Boolean(options.sectioned);
+  var showSummary = options.summary !== false;
   var lines = markdown.replace(/\r\n/g, '\n').split('\n');
   var html = '';
   var paragraph = [];
@@ -1517,7 +1542,7 @@ function renderMarkdown(markdown, options) {
   flushParagraph();
   flushLists();
   closeSection();
-  if (sectioned && sectionHeadings.length > 2) {
+  if (sectioned && showSummary && sectionHeadings.length > 2) {
     var summary = '<nav class="answer-summary" aria-label="Solution sections">';
     sectionHeadings.forEach(function (heading) {
       summary += '<a class="section-chip" href="#' + escapeHtml(heading.id) + '">' + renderInline(heading.title) + '</a>';
@@ -1577,7 +1602,7 @@ function answerHasWalkthroughTabs(markdown) {
   var split = splitAnswerSections(markdown);
   return split.sections.some(function (section) {
     var name = normalizeAnswerHeading(section.title);
-    return name === 'naive first try' || name === 'robust walkthrough';
+    return name === 'naive first try' || name === 'robust walkthrough' || name === 'robust answer';
   });
 }
 
@@ -1592,9 +1617,21 @@ function answerMarkdownForMode(markdown, mode) {
     'hints': true,
     'naive first try': true,
   };
+  var robustPrimarySections = {
+    'robust walkthrough': true,
+    'robust answer': true,
+    'code': true,
+    'complexity': true,
+    'fix': true,
+    'if asked': true,
+  };
   var selected = split.sections.filter(function (section) {
-    var isFirstTrySection = Boolean(firstTrySections[normalizeAnswerHeading(section.title)]);
-    return mode === 'robust' ? !isFirstTrySection : isFirstTrySection;
+    var name = normalizeAnswerHeading(section.title);
+    var isFirstTrySection = Boolean(firstTrySections[name]);
+    if (mode === 'robust') {
+      return name === 'say this first' || (!isFirstTrySection && Boolean(robustPrimarySections[name]));
+    }
+    return isFirstTrySection;
   });
 
   if (!selected.length) {
@@ -1627,6 +1664,19 @@ function renderAnswerModeButtons(showTabs) {
   elements.robustAnswerTab.setAttribute('aria-selected', String(robustActive));
 }
 
+function clearAnswerHash() {
+  if (window.location.hash && window.history && window.history.replaceState) {
+    window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
+  }
+}
+
+function scrollAnswerToTop() {
+  if (elements.answerView) {
+    elements.answerView.scrollTop = 0;
+  }
+  window.scrollTo(0, 0);
+}
+
 function renderAnswerContent(run) {
   var hasAnswerMarkdown = Boolean(run && run.answerMarkdown && run.answerMarkdown.trim());
   if (hasAnswerMarkdown) {
@@ -1635,13 +1685,13 @@ function renderAnswerContent(run) {
     var markdown = useWalkthroughTabs
       ? answerMarkdownForMode(run.answerMarkdown, state.activeAnswerMode)
       : run.answerMarkdown;
-    elements.answerView.innerHTML = renderMarkdown(markdown, { sectioned: true });
+    elements.answerView.innerHTML = renderMarkdown(markdown, { sectioned: true, summary: false });
     return;
   }
 
   renderAnswerModeButtons(false);
   if (run && run.readyToAnswer) {
-    elements.answerView.innerHTML = '<p class="empty">Generating answer from the captured screenshot...</p>';
+    elements.answerView.innerHTML = '<p class="empty">Question is ready. Click Answer to generate a solution.</p>';
     return;
   }
 
@@ -1653,6 +1703,8 @@ function selectAnswerMode(mode) {
   renderAnswerModeButtons(Boolean(state.currentRun && state.currentRun.answerMarkdown));
   if (state.currentRun) {
     renderAnswerContent(state.currentRun);
+    clearAnswerHash();
+    scrollAnswerToTop();
   }
 }
 
@@ -1810,7 +1862,7 @@ function renderMonitor() {
   }
 
   if (monitor && monitor.running) {
-    elements.monitorStatus.textContent = 'Monitoring ' + screenShortLabel(monitor.screenId) + '. Click New Question when the prompt changes.';
+    elements.monitorStatus.textContent = 'Monitoring ' + screenShortLabel(monitor.screenId) + '. Click New when the prompt changes.';
     elements.stopMonitorButton.disabled = false;
     elements.startMonitorButton.disabled = !state.displays.length;
     elements.liveDot.classList.add('on');
@@ -1821,7 +1873,7 @@ function renderMonitor() {
     elements.liveDot.classList.remove('on');
   } else {
     elements.monitorStatus.textContent = elements.screenSelect.value
-      ? 'Ready: click New Question to start'
+      ? 'Ready: click Capture to grab the selected screen'
       : 'Select a screen first';
     elements.stopMonitorButton.disabled = true;
     elements.startMonitorButton.disabled = !state.displays.length || !elements.screenSelect.value;
@@ -1942,12 +1994,12 @@ function clearForNewCapture(screenId) {
   state.currentRunReady = false;
   state.currentRunHasAnswer = false;
   elements.kindLabel.textContent = 'New question';
-  elements.titleLabel.textContent = 'Capturing a new question';
-  elements.readyLabel.textContent = 'Capturing';
-  elements.readyLabel.style.color = 'var(--amber)';
+  elements.titleLabel.textContent = 'Ready for a new question';
+  elements.readyLabel.textContent = 'Waiting';
+  elements.readyLabel.style.color = 'var(--muted)';
   elements.completenessLabel.textContent = '0% captured';
-  elements.questionBody.innerHTML = '<p class="empty">Reading ' + escapeHtml(screenShortLabel(screenId)) + '...</p>';
-  elements.answerView.innerHTML = '<p class="empty">Waiting for the new question before generating a solution.</p>';
+  elements.questionBody.innerHTML = '<p class="empty">Click Capture when the prompt is visible on ' + escapeHtml(screenShortLabel(screenId)) + '.</p>';
+  elements.answerView.innerHTML = '<p class="empty">Capture the new question before generating a solution.</p>';
   renderAnswerModeButtons(false);
   elements.hintsView.innerHTML = '<p class="empty">Hints will appear when available.</p>';
   elements.hintsSection.classList.add('hidden');
@@ -2008,6 +2060,7 @@ async function startMonitor(screenId) {
     } catch (_error) {
     }
     state.pendingScreenId = selectedScreenId;
+    state.newQuestionPending = false;
     clearForNewCapture(selectedScreenId);
     elements.monitorStatus.textContent = 'Starting new question capture on ' + screenShortLabel(selectedScreenId) + '...';
     state.monitor = await postJson('/api/monitor/start', { screenId: selectedScreenId });
@@ -2035,6 +2088,11 @@ async function requestAnswer() {
     return;
   }
 
+  selectTab('answer');
+  clearAnswerHash();
+  scrollAnswerToTop();
+  renderAnswerModeButtons(false);
+  elements.answerView.innerHTML = '<p class="empty">Generating answer...</p>';
   state.answering = true;
   elements.answerButton.disabled = true;
   elements.answerButton.textContent = 'Generating answer...';
@@ -2048,7 +2106,7 @@ async function requestAnswer() {
   } finally {
     state.answering = false;
     if (elements.answerButton) {
-      elements.answerButton.textContent = 'Answer';
+      elements.answerButton.textContent = 'Answer (F)';
     }
     if (elements.captureButton) {
       elements.captureButton.disabled = state.capturing || !resolveCaptureScreenId();
@@ -2084,7 +2142,7 @@ async function requestCapture() {
   elements.captureButton.textContent = 'Capturing...';
 
   try {
-    var activeRunId = state.monitor && state.monitor.activeRunId ? state.monitor.activeRunId : null;
+    var activeRunId = state.monitor && state.monitor.running && state.monitor.activeRunId ? state.monitor.activeRunId : null;
     var targetRunId = activeRunId || (state.currentRunHasAnswer ? null : state.currentRunId);
     var targetUrl = targetRunId
       ? '/api/runs/' + encodeURIComponent(targetRunId) + '/capture'
@@ -2092,6 +2150,7 @@ async function requestCapture() {
     var detail = await postJson(targetUrl, { screenId: selectedScreenId, runId: targetRunId || undefined });
     if (detail && detail.id) {
       state.currentRunId = detail.id;
+      state.newQuestionPending = false;
     }
     renderRun(detail);
     if (detail && detail.id) {
@@ -2103,12 +2162,45 @@ async function requestCapture() {
   } finally {
     state.capturing = false;
     if (elements.captureButton) {
-      elements.captureButton.textContent = 'Capture';
+      elements.captureButton.textContent = 'Capture (C)';
       elements.captureButton.disabled = state.capturing || !resolveCaptureScreenId();
     }
     if (elements.answerButton) {
       elements.answerButton.disabled = state.answering || state.capturing || !state.currentRunReady;
     }
+  }
+}
+
+async function startNewQuestion(screenId) {
+  try {
+    var selectedScreenId = Number(screenId || elements.screenSelect.value);
+    if (!Number.isFinite(selectedScreenId) || selectedScreenId <= 0) {
+      elements.monitorStatus.textContent = 'Choose a screen first.';
+      if (elements.screenSelect.options.length) {
+        elements.screenSelect.focus();
+      }
+      return;
+    }
+    try {
+      localStorage.setItem(SELECTED_SCREEN_KEY, String(selectedScreenId));
+    } catch (_error) {
+    }
+
+    state.pendingScreenId = selectedScreenId;
+    state.newQuestionPending = true;
+    clearForNewCapture(selectedScreenId);
+    selectTab('question');
+    elements.monitorStatus.textContent = 'Ready for a new question. Click Capture when the prompt is visible.';
+
+    if (state.monitor && state.monitor.running) {
+      state.monitor = await postJson('/api/monitor/stop', {});
+    }
+
+    state.pendingScreenId = null;
+    renderMonitor();
+  } catch (error) {
+    state.pendingScreenId = null;
+    elements.monitorStatus.textContent = error.message || String(error);
   }
 }
 
@@ -2129,12 +2221,15 @@ async function requestReset() {
 async function loadRuns() {
   var data = await fetchJson('/api/runs');
   var runs = data.runs || [];
-  var activeRunId = state.monitor && state.monitor.activeRunId;
+  var activeRunId = state.monitor && state.monitor.running && state.monitor.activeRunId;
   var hasCurrentRun = state.currentRunId && runs.some(function (run) { return run.id === state.currentRunId; });
   var hasActiveRun = activeRunId && runs.some(function (run) { return run.id === activeRunId; });
 
   if (hasActiveRun) {
+    state.newQuestionPending = false;
     state.currentRunId = activeRunId;
+  } else if (state.newQuestionPending) {
+    state.currentRunId = null;
   } else if (state.monitor && state.monitor.running) {
     state.currentRunId = null;
   } else if (!hasCurrentRun) {
@@ -2152,7 +2247,11 @@ async function loadSelectedRun() {
     await loadMonitor();
     await loadRuns();
     if (!state.currentRunId) {
-      renderRun(null);
+      if (state.newQuestionPending) {
+        clearForNewCapture(resolveCaptureScreenId());
+      } else {
+        renderRun(null);
+      }
       return;
     }
     var run = await fetchJson('/api/runs/' + encodeURIComponent(state.currentRunId));
@@ -2200,6 +2299,31 @@ function selectTab(tabName) {
   }
   if (elements.questionPanel) {
     elements.questionPanel.classList.toggle('hidden', answerActive);
+  }
+}
+
+function hotkeysBlocked(event) {
+  var target = event && event.target;
+  if (!target) {
+    return false;
+  }
+  if (target.isContentEditable) {
+    return true;
+  }
+  var tagName = target.tagName ? String(target.tagName).toLowerCase() : '';
+  return tagName === 'input' || tagName === 'textarea';
+}
+
+function toggleLiveRefresh() {
+  if (!elements.autoRefresh) {
+    return;
+  }
+  elements.autoRefresh.checked = !elements.autoRefresh.checked;
+  elements.monitorStatus.textContent = elements.autoRefresh.checked
+    ? 'Live refresh enabled.'
+    : 'Live refresh paused.';
+  if (elements.autoRefresh.checked) {
+    loadSelectedRun();
   }
 }
 
@@ -2252,7 +2376,7 @@ function boot() {
       renderMonitor();
     }
   });
-  elements.startMonitorButton.addEventListener('click', function () { startMonitor(); });
+  elements.startMonitorButton.addEventListener('click', function () { startNewQuestion(); });
   elements.stopMonitorButton.addEventListener('click', stopMonitor);
   elements.answerButton.addEventListener('click', requestAnswer);
   elements.captureButton.addEventListener('click', requestCapture);
@@ -2267,33 +2391,74 @@ function boot() {
   elements.overlayToggle.addEventListener('click', toggleOverlay);
   elements.autoRefresh.checked = true;
   document.addEventListener('keydown', function (event) {
+    if (event.ctrlKey || event.metaKey || event.altKey) {
+      return;
+    }
+    if (hotkeysBlocked(event)) {
+      return;
+    }
+
+    var key = String(event.key || '').toLowerCase();
     if (event.key === 'Escape') {
       toggleOverlay(false);
       return;
     }
-    if (event.key === 'a' || event.key === 'A') {
+
+    if (/^[1-9]$/.test(key)) {
+      if (selectMonitorByIndex(Number(key) - 1)) {
+        event.preventDefault();
+      }
+      return;
+    }
+
+    if (key === 'a') {
+      event.preventDefault();
+      selectTab('answer');
+      return;
+    }
+    if (key === 'q') {
+      event.preventDefault();
+      selectTab('question');
+      return;
+    }
+    if (key === 'w') {
+      event.preventDefault();
+      selectAnswerMode('firstTry');
+      return;
+    }
+    if (key === 'e') {
+      event.preventDefault();
+      selectAnswerMode('robust');
+      return;
+    }
+    if (key === 't') {
+      event.preventDefault();
+      toggleLiveRefresh();
+      return;
+    }
+    if (key === 'f') {
       event.preventDefault();
       requestAnswer();
       return;
     }
-    if (event.key === 'c' || event.key === 'C') {
+    if (key === 'c') {
       event.preventDefault();
       requestCapture();
       return;
     }
-    if (event.key === 'n' || event.key === 'N') {
+    if (key === 'n') {
       event.preventDefault();
-      startMonitor();
+      startNewQuestion();
       return;
     }
-    if (event.key === 'r' || event.key === 'R') {
-      event.preventDefault();
-      loadSelectedRun();
-      return;
-    }
-    if (event.key === 'q' || event.key === 'Q') {
+    if (key === 's') {
       event.preventDefault();
       stopMonitor();
+      return;
+    }
+    if (key === 'r') {
+      event.preventDefault();
+      loadSelectedRun();
     }
   });
   loadSelectedRun().then(function () {
@@ -2347,7 +2512,7 @@ function makeMonitorSpawnArgs(
     String(screenId),
     "--language",
     language,
-    "--auto",
+    "--manual",
     "--out",
     outDir,
     "--interval",

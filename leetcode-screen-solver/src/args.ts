@@ -67,6 +67,7 @@ function readFlagValue(args: string[], index: number, flag: string): { value: st
 export function parseArgs(argv: string[]): CliOptions {
   let command: Command = "watch";
   let index = 0;
+  let autoSolveExplicit = false;
 
   if (
     argv[0] === "watch" ||
@@ -107,11 +108,13 @@ export function parseArgs(argv: string[]): CliOptions {
     }
 
     if (arg === "--auto") {
+      autoSolveExplicit = true;
       options.autoSolve = true;
       continue;
     }
 
     if (arg === "--manual") {
+      autoSolveExplicit = true;
       options.autoSolve = false;
       continue;
     }
@@ -201,6 +204,10 @@ export function parseArgs(argv: string[]): CliOptions {
     throw new Error("image mode requires at least one screenshot path.");
   }
 
+  if (options.command === "watch" && options.uiEnabled && !autoSolveExplicit) {
+    options.autoSolve = false;
+  }
+
   return options;
 }
 
@@ -224,7 +231,7 @@ export function helpText(): string {
     "  --ui                     Start the coding-solution UI with watch/once/image",
     "  --port <number>          UI port. Default: 4378",
     "  --auto                   Enable automatic answering when context is complete",
-    "  --manual                 Disable automatic answering (watch mode defaults to auto)",
+    "  --manual                 Disable automatic answering (watch mode defaults to auto unless --ui is used)",
     "  --max-screens <count>    Stop after this many observations",
     "  --handoff <mode>         Answer handoff: codex, openclaw, or clipboard. Default: codex",
     "  --profile <file>         Candidate context for tailored communication style and examples",

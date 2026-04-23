@@ -59,10 +59,10 @@ npm run watch -- --language python
 The tool asks which monitor has the interview question, then captures only that screen every 8 seconds. You handle any scrolling manually.
 
 Watch mode answers automatically once enough context is captured.
-When run with `--ui`, watch mode keeps running (and keeps monitoring) after it answers so you can continue to the next screen prompt.
+When run with `--ui`, watch mode waits for you to click **Answer** so you can collect multiple screenshots first.
 By default it uses Codex CLI for answer generation (`--handoff codex`).
 
-In UI mode, pick your interview monitor first and click **New Question** to begin capture.
+In UI mode, pick your interview monitor first, click **New** to clear the workspace, then click **Capture** when the prompt is visible.
 
 To skip the prompt and choose a screen directly:
 
@@ -82,7 +82,7 @@ Disable auto-answer and capture only:
 npm run watch -- --language python --manual
 ```
 
-Start the coding-solution UI while watching (auto-answer when complete):
+Start the coding-solution UI while watching:
 
 ```powershell
 npm run watch -- --language python --ui
@@ -100,7 +100,7 @@ You can also run the UI by itself in a second terminal:
 npm run ui
 ```
 
-The UI includes a **Screen Monitor** selector. Pick the screen with the interview prompt, then click **New Question** to start monitoring it in the background. Use **Stop** to end that watcher.
+The UI includes a **Screen Monitor** selector. Pick the screen with the interview prompt, click **New** to start a clean question workspace, then use **Capture** whenever you want to grab the selected screen. Capture as many screenshots as the prompt needs, then click **Answer** when you are ready. Use **Stop** only if a background watcher is running.
 
 ## Listen Mode
 
