@@ -130,6 +130,9 @@ function inferCommonAnswer(label, type, profile, answers) {
   if (/^search by\b/.test(normalizedLabel) || /\bsearch\b/.test(normalizedLabel)) {
     return "";
   }
+  if (/which of the following best describes you|what best describes you|ai or automated program|automated program/.test(normalizedLabel)) {
+    return "I am a human being";
+  }
   const explicit = lookupApplicationAnswer(answers, label, type);
   if (explicit) {
     return explicit;
@@ -205,7 +208,8 @@ function inferCommonAnswer(label, type, profile, answers) {
   }
   if (/transgender/.test(normalizedLabel)) return "No";
   if (/sexual orientation/.test(normalizedLabel)) return "I don't wish to answer";
-  if (/ethnicit/.test(normalizedLabel) || /\brace\b/.test(normalizedLabel)) return "I don't wish to answer";
+  if (/hispanic|latino|latina|latine/.test(normalizedLabel)) return "No";
+  if (/ethnicit|racial|origin/.test(normalizedLabel) || /\brace\b/.test(normalizedLabel)) return "White";
   if (/by checking this box|consent to .*collecting.*processing|demographic data surveys/.test(normalizedLabel)) {
     return "Yes";
   }
@@ -215,8 +219,8 @@ function inferCommonAnswer(label, type, profile, answers) {
       ? "Yes"
       : "No";
   }
-  if (/gender/.test(normalizedLabel)) return lookupApplicationAnswer(answers, "gender", type) || "I don't wish to answer";
-  if (/disability/.test(normalizedLabel)) return lookupApplicationAnswer(answers, "disability status", type) || "I don't wish to answer";
+  if (/gender/.test(normalizedLabel)) return lookupApplicationAnswer(answers, "gender", type) || "Male";
+  if (/disability/.test(normalizedLabel)) return lookupApplicationAnswer(answers, "disability status", type) || "No";
   if (/served in the military|military service/.test(normalizedLabel)) {
     return lookupApplicationAnswer(answers, "military service", type) || "No military service";
   }
@@ -696,7 +700,14 @@ async function selectComboboxOption(page, field, desiredValue) {
 
   await page.waitForTimeout(250);
   const selected = await readSelection();
-  return selectionMatches(selected);
+  if (selectionMatches(selected)) {
+    return true;
+  }
+
+  await field.fill("").catch(() => undefined);
+  await page.keyboard.press("Escape").catch(() => undefined);
+  await page.waitForTimeout(150);
+  return false;
 }
 
 async function uploadFileIfPresent(page, labelPatterns, filePath) {
@@ -1137,6 +1148,12 @@ async function main() {
         value: "Yes",
       },
       {
+        name: "human identity",
+        patterns: ["which of the following best describes you", "what best describes you", "ai or automated program", "automated program"],
+        type: "select",
+        value: "I am a human being",
+      },
+      {
         name: "employee referral",
         patterns: ["did an employee refer you", "employee referral", "employee refer", "referred you"],
         type: "select",
@@ -1184,14 +1201,14 @@ async function main() {
         type: "select",
         value: "I have reviewed and confirmed that all the information provided is accurate and complete.",
       },
-      { name: "gender", patterns: ["gender identity", "gender"], type: "select", value: lookupApplicationAnswer(answers, "gender", "select") || "I don't wish to answer" },
+      { name: "gender", patterns: ["gender identity", "gender"], type: "select", value: lookupApplicationAnswer(answers, "gender", "select") || "Male" },
       { name: "transgender experience", patterns: ["person of transgender experience", "transgender experience"], type: "select", value: "No" },
       { name: "sexual orientation", patterns: ["sexual orientation"], type: "select", value: "I don't wish to answer" },
-      { name: "transgender", patterns: ["identify as transgender", "transgender"], type: "select", value: "I don't wish to answer" },
-      { name: "disability status", patterns: ["disability status", "disability"], type: "select", value: lookupApplicationAnswer(answers, "disability status", "select") || "I don't wish to answer" },
+      { name: "transgender", patterns: ["identify as transgender", "transgender"], type: "select", value: "No" },
+      { name: "disability status", patterns: ["disability status", "disability"], type: "select", value: lookupApplicationAnswer(answers, "disability status", "select") || "No" },
       { name: "military service", patterns: ["served in the military", "military service"], type: "select", value: "No military service" },
       { name: "veteran status", patterns: ["veteran status", "veteran"], type: "select", value: lookupApplicationAnswer(answers, "veteran status", "select") || "No" },
-      { name: "ethnicity", patterns: ["select up to 2 ethnicities", "ethnicities"], type: "select", value: "I don't wish to answer" },
+      { name: "ethnicity", patterns: ["select up to 2 ethnicities", "ethnicities", "race", "racial"], type: "select", value: "White" },
       {
         name: "demographic consent",
         patterns: ["by checking this box", "consent to reddit collecting", "demographic data surveys"],

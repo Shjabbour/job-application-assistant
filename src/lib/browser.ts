@@ -5,7 +5,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { chromium, type Browser, type BrowserContext, type Frame, type FrameLocator, type Locator, type Page } from "playwright";
-import { suggestFormAnswer, type FormQuestion } from "./formAnswers.js";
+import {
+  chooseHumanApplicantIdentityAnswer,
+  chooseTruthfulDemographicAnswer,
+  suggestFormAnswer,
+  type FormQuestion,
+} from "./formAnswers.js";
 import { loadApplicationAnswers, lookupApplicationAnswer } from "./applicationAnswers.js";
 import { evaluateJobScreening } from "./jobEvaluation.js";
 import {
@@ -6359,10 +6364,10 @@ async function fillCargillSuccessFactorsBaseFields(
     ["SuccessFactors former intern", [/current or former cargill intern|co op|summer student/], ["No"]],
     ["SuccessFactors preferred language", [/preferred language/], ["English"]],
     ["SuccessFactors SMS opt in", [/sms opt in|text message|mobile message/], ["No"]],
-    ["SuccessFactors race ethnicity", [/race ethnicity|ethnicity/], ["Not Applicable", "I do not wish to answer"]],
-    ["SuccessFactors gender", [/gender/], ["Prefers not to disclose", "I prefer not to disclose", "Decline to State"]],
+    ["SuccessFactors race ethnicity", [/race ethnicity|ethnicity/], ["Middle Eastern or North African", "Middle Eastern", "White", "Caucasian"]],
+    ["SuccessFactors gender", [/gender/], ["Male", "Man"]],
     ["SuccessFactors veteran status", [/protected veteran status|veteran/], ["I AM NOT A VETERAN", "I am not a protected veteran", "Not a Veteran"]],
-    ["SuccessFactors disability status", [/disability|please select one of the options below/], ["I do not want to answer", "Decline to Answer"]],
+    ["SuccessFactors disability status", [/disability|please select one of the options below/], ["No, I do not have a disability", "No, I don't have a disability", "No"]],
   ];
   for (const [label, patterns, values] of picklists) {
     recordSuccessFactorsResult(await selectSuccessFactorsPicklistByLabel(page, patterns, values), label, filled, skipped);
@@ -6484,9 +6489,9 @@ async function fillAmericanAirlinesSuccessFactorsFields(
     ["American Airlines source", [/first hear.*job opening|how did you.*hear|source/], ["LinkedIn"]],
     ["American Airlines preferred location", [/preferred location|multilocation/], ["-N/A", "N/A"]],
     ["American Airlines veteran", [/veteran status/], ["Non veteran", "Non Veteran"]],
-    ["American Airlines ethnicity", [/ethnicity/], ["I do not wish to provide this information", "I do not wish to disclose"]],
-    ["American Airlines race", [/^race$/], ["I do not wish to provide this information", "I do not wish to disclose"]],
-    ["American Airlines disability", [/disability status/], ["I do not want to answer", "I do not wish to answer"]],
+    ["American Airlines ethnicity", [/ethnicity/], ["Middle Eastern or North African", "Middle Eastern", "White", "Caucasian"]],
+    ["American Airlines race", [/^race$/], ["Middle Eastern or North African", "Middle Eastern", "White", "Caucasian"]],
+    ["American Airlines disability", [/disability status/], ["No, I do not have a disability", "No, I don't have a disability", "No"]],
     ["American Airlines family employee", [/family member.*active employee.*american airlines/], ["No"]],
   ];
   for (const [label, patterns, values] of picklists) {
@@ -6764,6 +6769,22 @@ function getCustomGreenhouseAnswer(
   explicitAnswers: Awaited<ReturnType<typeof loadApplicationAnswers>>,
 ): string {
   const normalized = normalizeQuestionText(`${label} ${fieldName}`);
+  const humanIdentityAnswer = chooseHumanApplicantIdentityAnswer({
+    label: `${label} ${fieldName}`.trim(),
+    type,
+    required: false,
+    choices,
+  });
+  if (humanIdentityAnswer) return humanIdentityAnswer;
+
+  const demographicAnswer = chooseTruthfulDemographicAnswer({
+    label: `${label} ${fieldName}`.trim(),
+    type,
+    required: false,
+    choices,
+  });
+  if (demographicAnswer) return demographicAnswer;
+
   const first = profile.name.split(/\s+/)[0] || "";
   const last = profile.name.split(/\s+/).slice(1).join(" ") || "";
   const website =
@@ -6854,16 +6875,37 @@ function getCustomGreenhouseAnswer(
     );
   }
   if (/pronoun/.test(normalized)) return "";
-  if (/lgbt|sexual orientation|transgender|gender identity/.test(normalized)) {
+  if (/lgbt|sexual orientation|gender identity/.test(normalized)) {
     return pickNonDisclosureChoice(choices, "I don't wish to answer");
   }
-  if (/disability/.test(normalized)) return pickNonDisclosureChoice(choices, "I do not want to answer");
-  if (/\brace\b|ethnic|hispanic|latino|latina|latine/.test(normalized)) return pickNonDisclosureChoice(choices, "Decline To Self Identify");
-  if (/gender/.test(normalized)) return pickNonDisclosureChoice(choices, "Decline To Self Identify");
+  if (/transgender/.test(normalized)) return pickChoice(choices, ["No"], "No");
+  if (/disability/.test(normalized)) {
+    return pickChoice(
+      choices,
+      ["No, I do not have a disability", "No, I don't have a disability", "I do not have a disability", "No"],
+      "No",
+    );
+  }
+  if (/hispanic|latino|latina|latine/.test(normalized)) return pickChoice(choices, ["No"], "No");
+  if (/\brace\b|ethnic|racial|origin/.test(normalized)) {
+    return pickChoice(
+      choices,
+      ["Middle Eastern or North African", "Middle Eastern", "White", "White / Caucasian", "Caucasian"],
+      "White",
+    );
+  }
+  if (/gender/.test(normalized)) return pickChoice(choices, ["Male", "Man", "Cisgender man"], "Male");
   if (/veteran/.test(normalized)) {
     return pickChoice(
       choices,
-      ["I am not a protected Veteran", "I am not a U.S. military protected veteran", "No"],
+      [
+        "I am not a veteran",
+        "I am not a protected Veteran",
+        "I am not a U.S. military protected veteran",
+        "Non Veteran",
+        "Not a Veteran",
+        "No",
+      ],
       "I am not a protected Veteran",
     );
   }
@@ -6971,6 +7013,7 @@ async function setGreenhouseReactSelectValue(page: Page, field: Locator, value: 
       );
       await page.waitForTimeout(500).catch(() => undefined);
     } else {
+      await field.fill("").catch(() => undefined);
       await page.keyboard.press("Escape").catch(() => undefined);
       await page.waitForTimeout(150).catch(() => undefined);
       continue;
@@ -7485,11 +7528,11 @@ async function runRipplingDirectAutofill(page: Page, profile: Profile): Promise<
   const selectComboboxes = await getRipplingSelectableComboboxes(page);
   const selections: Array<{ index: number; values: string[]; label: string }> = [
     { index: 0, values: ["No"], label: "Rippling Sponsorship" },
-    { index: 1, values: ["Choose not to disclose", "Not declared", "Decline to state"], label: "Rippling Gender" },
-    { index: 2, values: ["Choose not to disclose", "Decline to state"], label: "Rippling Race" },
-    { index: 3, values: ["Choose not to disclose", "No"], label: "Rippling Hispanic/Latino" },
+    { index: 1, values: ["Male", "Man"], label: "Rippling Gender" },
+    { index: 2, values: ["Middle Eastern or North African", "Middle Eastern", "White", "Caucasian"], label: "Rippling Race" },
+    { index: 3, values: ["No"], label: "Rippling Hispanic/Latino" },
     { index: 4, values: ["I am not a protected veteran", "I AM NOT A VETERAN"], label: "Rippling Veteran" },
-    { index: 5, values: ["I don't wish to answer", "I do not wish to answer"], label: "Rippling Disability" },
+    { index: 5, values: ["No, I do not have a disability", "No, I don't have a disability", "No"], label: "Rippling Disability" },
   ];
   for (const selection of selections) {
     const field = selectComboboxes[selection.index];
@@ -8223,13 +8266,13 @@ async function runGreenhouseHostedAutofill(
       name: "gender",
       patterns: ["gender identity"],
       fallbackLabel: "Gender Identity",
-      values: ["I don't wish to answer", "Decline To Self Identify", "Prefer not to disclose"],
+      values: ["Male", "Man"],
     },
     {
       name: "race/ethnicity",
       patterns: ["racial/ethnic background", "racial ethnic background", "race", "ethnic"],
       fallbackLabel: "Racial/Ethnic Background",
-      values: ["I don't wish to answer", "Decline To Self Identify", "Prefer not to disclose"],
+      values: ["Middle Eastern or North African", "Middle Eastern", "White", "Caucasian"],
     },
     {
       name: "sexual orientation",
@@ -8241,13 +8284,13 @@ async function runGreenhouseHostedAutofill(
       name: "transgender",
       patterns: ["identify as transgender", "transgender"],
       fallbackLabel: "Do you identify as transgender?",
-      values: ["I don't wish to answer", "Decline To Self Identify", "Prefer not to disclose"],
+      values: ["No"],
     },
     {
       name: "disability status",
       patterns: ["disability status"],
       fallbackLabel: "Disability Status",
-      values: ["I don't wish to answer", "Decline To Self Identify", "Prefer not to disclose"],
+      values: ["No, I do not have a disability", "No, I don't have a disability", "I do not have a disability", "No"],
     },
     {
       name: "veteran status",
@@ -8841,7 +8884,7 @@ async function runTalemetryDirectAutofill(
   }
 
   if (/demographic information/i.test(title)) {
-    const answers = ["Decline to Self Identify", "Decline To Self Identify", "Not a Veteran"];
+    const answers = ["White", "Male", "Not a Veteran"];
     const labels = ["race", "gender", "veteran status"];
     for (let index = 0; index < answers.length; index += 1) {
       if (await selectTalemetryVisibleSelectByIndex(page, index, answers[index])) {
@@ -10230,7 +10273,7 @@ async function runPhenomVoluntaryDisclosuresAutofill(
       page,
       ['[id="personalData.ethnicity"]', '[name="personalData.ethnicity"]', '[id="eeoUSA.ethnicity"]', '[name="eeoUSA.ethnicity"]'],
       ["ethnicity", "race"],
-      ["I do not wish to answer (United States of America)", "I do not wish to answer", "Decline to Self Identify"],
+      ["Middle Eastern or North African", "Middle Eastern", "White", "Caucasian"],
       "ethnicity",
     ),
   );
@@ -10239,7 +10282,7 @@ async function runPhenomVoluntaryDisclosuresAutofill(
       page,
       ['[id="personalData.gender"]', '[name="personalData.gender"]', '[id="eeoUSA.gender"]', '[name="eeoUSA.gender"]'],
       ["gender"],
-      ["I do not wish to answer", "I do not wish to self-identify", "Decline to Self Identify", "No Selection"],
+      ["Male", "Man"],
       "gender",
     ),
   );
@@ -10253,12 +10296,12 @@ async function runPhenomVoluntaryDisclosuresAutofill(
     ),
   );
   merge(await setPhenomCheckbox(page, ['[id="agreementCheck"]', '[name="agreementCheck"]'], [/certify|read.*understand|accept.*terms/i], true, "disclosure certification"));
-  if (await choosePhenomExactRadio(page, "gender.No Selection")) {
+  if (await choosePhenomExactRadio(page, "gender.Male")) {
     filled.push("gender");
   } else {
     skipped.push("gender");
   }
-  if (await selectPhenomExactField(page, '[id="disabilityStatus"]', ["I do not want to answer"])) {
+  if (await selectPhenomExactField(page, '[id="disabilityStatus"]', ["No, I do not have a disability", "No, I don't have a disability", "No"])) {
     filled.push("disability status");
   } else {
     skipped.push("disability status");
@@ -10317,12 +10360,15 @@ async function runPhenomDisabilityAutofill(
     await choosePhenomRadio(
       page,
       [
+        '[id="disability_heading_self_identity1.disabilityStatus.NO_REV_2026"]',
+        'input[id*="NO_REV_2026"]',
+        'input[value*="NO_REV_2026"]',
         '[id="disability_heading_self_identity1.disabilityStatus.DECLINE_REV_2026"]',
         'input[id*="DECLINE_REV_2026"]',
         'input[value*="DECLINE_REV_2026"]',
       ],
       [/disability/i],
-      ["I do not want to answer", "Decline"],
+      ["No, I do not have a disability", "No, I don't have a disability", "No", "I do not want to answer", "Decline"],
       "disability status",
     ),
   );
@@ -10566,9 +10612,9 @@ async function clearUkgNonApplicableRequiredFields(page: Page): Promise<void> {
       };
 
       for (const selector of [
-        'input[data-automation="gender-decline-checkbox"]',
-        'input[data-automation="ethnic-origin-decline-checkbox"]',
-        'input[data-automation="race-decline-checkbox"]',
+        'input[name="Gender"][value="Male"]',
+        'input[name="EthnicOrigin"][value="White"]',
+        'input[name="Race"][value="White"]',
       ]) {
         const input = document.querySelector<HTMLInputElement>(selector);
         if (input && !input.checked) {
@@ -10687,13 +10733,14 @@ async function applyUkgKnockoutAnswers(page: Page, profile: Profile): Promise<bo
           }
         };
         setCountryQuestion(/veteran/, "No");
-        setCountryQuestion(/disability/, "Decline");
-        setCountryQuestion(/gender/, "Decline");
-        setCountryQuestion(/ethnic origin|race|hispanic/, "Decline");
+        setCountryQuestion(/disability/, "No");
+        setCountryQuestion(/gender/, "Male");
+        setCountryQuestion(/hispanic|latino/, "No");
+        setCountryQuestion(/ethnic origin|race/, "White");
 
         const disabilityQuestion = root.countryQuestionsViewModel?.disabilityOptions?.question;
         if (disabilityQuestion) {
-          setObservable(disabilityQuestion.Answer, "Decline");
+          setObservable(disabilityQuestion.Answer, "No");
           setObservable(disabilityQuestion.Name, name);
           setObservable(disabilityQuestion.Date, displayDate);
           setObservable(disabilityQuestion.uiErrors, {});
@@ -10705,9 +10752,9 @@ async function applyUkgKnockoutAnswers(page: Page, profile: Profile): Promise<bo
         }
 
         for (const selector of [
-          'input[data-automation="gender-decline-checkbox"]',
-          'input[data-automation="ethnic-origin-decline-checkbox"]',
-          'input[name="AreYouDisabled"][value="Decline"]',
+          'input[name="Gender"][value="Male"]',
+          'input[name="EthnicOrigin"][value="White"]',
+          'input[name="AreYouDisabled"][value="No"]',
           'input[name="employeereferral"][value="false"]',
         ]) {
           const element = document.querySelector<HTMLInputElement>(selector);
@@ -11460,13 +11507,17 @@ async function runOracleHcmDirectAutofill(
     "I bring hands-on software engineering, automation, cloud, and data experience across Python, TypeScript, SQL, APIs, CI/CD, and production support, with a track record of improving reliability and delivery speed.",
     "Oracle HCM qualification highlight",
   );
-  mark("Oracle HCM race non-disclosure", await checkOracleCheckboxByLabel(page, /I choose not to disclose/i));
-  await fillCombo('input[name="US-STANDARD-ORA_GENDER-STANDARD"][role="combobox"]', ["Decline to State"], "Oracle HCM gender");
+  await fillCombo(
+    'input[name*="RACE" i][role="combobox"], input[name*="ETHNIC" i][role="combobox"]',
+    ["Middle Eastern or North African", "Middle Eastern", "White", "Caucasian"],
+    "Oracle HCM race",
+  );
+  await fillCombo('input[name="US-STANDARD-ORA_GENDER-STANDARD"][role="combobox"]', ["Male", "Man"], "Oracle HCM gender");
   await clickPill(/Diversity, Equity, Inclusion and Belonging/i, /I hereby understand and acknowledge/i, "Oracle HCM DEI acknowledgment");
   await clickPill(/recorded interviews|digital communication/i, /I hereby understand and acknowledge/i, "Oracle HCM recording acknowledgment");
   await clickPill(/preferred pronouns/i, "Decline to State", "Oracle HCM pronouns");
   await clickPill(/sexual orientation/i, "Decline to State", "Oracle HCM sexual orientation");
-  await clickPill(/veteran status/i, /do not wish to self-identify/i, "Oracle HCM veteran status");
+  await clickPill(/veteran status/i, /not a veteran|not a protected veteran|no/i, "Oracle HCM veteran status");
   await clickPill(/military partner/i, "No", "Oracle HCM military partner");
   await fillText('input[name="fullName"], input[id^="fullName"]', profile.name, "Oracle HCM e-signature");
 
@@ -11870,17 +11921,31 @@ function getHirebridgeSelectValues(profile: Profile, contextText: string): { val
   if (/source|where.*hear|how.*hear|where.*learn/.test(label)) {
     return { values: ["LinkedIn", "LinkedIn page or job posting"], label: "hirebridge source" };
   }
-  if (/gender|race|ethnicity|disability|veteran/.test(label)) {
+  if (/gender/.test(label)) {
+    return { values: ["Male", "Man"], label: "hirebridge gender" };
+  }
+  if (/race|ethnicity|ethnic|racial/.test(label)) {
+    return {
+      values: ["Middle Eastern or North African", "Middle Eastern", "White", "Caucasian"],
+      label: "hirebridge race/ethnicity",
+    };
+  }
+  if (/disability/.test(label)) {
+    return {
+      values: ["No, I do not have a disability", "No, I don't have a disability", "No"],
+      label: "hirebridge disability",
+    };
+  }
+  if (/veteran/.test(label)) {
     return {
       values: [
-        "I do not want to answer",
-        "I do not wish to answer",
-        "Prefer not to disclose",
-        "Decline to Self Identify",
-        "Decline to identify",
-        "Not Specified",
+        "I am not a veteran",
+        "I am not a protected veteran",
+        "I am not a U.S. military protected veteran",
+        "Not a Veteran",
+        "No",
       ],
-      label: "hirebridge voluntary disclosure",
+      label: "hirebridge veteran",
     };
   }
   if (/current.*employee|currently.*employed|employee.*current|referr|sponsor|visa|vista|assessment|previously.*employed|worked.*for/.test(label)) {
@@ -11898,17 +11963,27 @@ function getHirebridgeChoiceValues(contextText: string): { values: string[]; lab
   if (/privacy|policy|terms|acknowledge|certif|agreement|consent/.test(label)) {
     return { values: ["Yes", "Agree", "I Agree", "Acknowledge", "Accept"], label: "hirebridge acknowledgement", checked: true };
   }
-  if (/gender|race|ethnicity|disability|veteran/.test(label)) {
+  if (/gender/.test(label)) {
+    return { values: ["Male", "Man"], label: "hirebridge gender", checked: true };
+  }
+  if (/race|ethnicity|ethnic|racial/.test(label)) {
     return {
-      values: [
-        "I do not want to answer",
-        "I do not wish to answer",
-        "Prefer not to disclose",
-        "Decline to Self Identify",
-        "Decline",
-        "Not Specified",
-      ],
-      label: "hirebridge voluntary disclosure",
+      values: ["Middle Eastern or North African", "Middle Eastern", "White", "Caucasian"],
+      label: "hirebridge race/ethnicity",
+      checked: true,
+    };
+  }
+  if (/disability/.test(label)) {
+    return {
+      values: ["No, I do not have a disability", "No, I don't have a disability", "No"],
+      label: "hirebridge disability",
+      checked: true,
+    };
+  }
+  if (/veteran/.test(label)) {
+    return {
+      values: ["I am not a veteran", "I am not a protected veteran", "Not a Veteran", "No"],
+      label: "hirebridge veteran",
       checked: true,
     };
   }
@@ -12675,6 +12750,20 @@ function inferAshbyChoiceAnswer(label: string, choices: string[]): string {
   const choose = (pattern: RegExp) => choices.find((choice) => pattern.test(choice)) || "";
   const yes = () => choose(/^yes$/i) || choose(/\byes\b/i);
   const no = () => choose(/^no$/i) || choose(/\bno\b/i);
+  const humanIdentityAnswer = chooseHumanApplicantIdentityAnswer({
+    label,
+    type: "radio",
+    required: false,
+    choices,
+  });
+  if (humanIdentityAnswer) return humanIdentityAnswer;
+  const demographicAnswer = chooseTruthfulDemographicAnswer({
+    label,
+    type: "radio",
+    required: false,
+    choices,
+  });
+  if (demographicAnswer) return demographicAnswer;
 
   if (/sponsorship|immigration support|employment visa|work visa/.test(normalized)) return no();
   if (/authorized to work|legally authorized|legally able to work|right to work/.test(normalized)) return yes();
@@ -15353,9 +15442,9 @@ function inferWorkdayPromptAnswer(label: string): string {
   if (/5.*years.*designing.*developing.*testing.*supporting software applications/.test(normalized)) return "Yes";
   if (/specialty pharmacy/.test(normalized)) return "No";
   if (/veteran status|protected veteran/.test(normalized)) return "I am not a veteran";
-  if (/gender|what is your sex/.test(normalized)) return "Choose Not to Disclose";
+  if (/gender|what is your sex/.test(normalized)) return "Male";
   if (/hispanic.*latino|latino descent/.test(normalized)) return "No";
-  if (/ethnicity|race/.test(normalized)) return "I do not want to answer";
+  if (/ethnicity|race/.test(normalized)) return "White";
   return "";
 }
 
@@ -15381,28 +15470,16 @@ function inferWorkdayPromptAnswerCandidates(label: string): string[] {
   }
   if (/gender|what is your sex/.test(normalized)) {
     candidates.push(
-      "Choose Not to Disclose",
-      "Wish Not To Answer",
-      "I choose not to disclose",
-      "I do not wish to answer",
-      "Decline to answer",
+      "Male",
+      "Man",
     );
   }
   if (/ethnicity|race/.test(normalized)) {
     candidates.push(
-      "I choose not to disclose (United States of America)",
-      "I choose not to disclose",
-      "Wish Not To Answer (United States of America)",
-      "Wish Not To Answer",
-      "Choose Not to Disclose",
-      "Not Declaring (United States of America)",
-      "Not Declaring",
-      "I do not wish to answer",
-      "I don't wish to answer",
-      "I do not want to answer",
-      "I choose not to self-identify",
-      "Decline to answer",
-      "Decline to Self Identify",
+      "Middle Eastern or North African",
+      "Middle Eastern",
+      "White",
+      "Caucasian",
     );
   }
   if (/windows forms.*net frameworks|net frameworks.*windows forms/.test(normalized)) {
@@ -16181,22 +16258,22 @@ async function runWorkdayDirectAutofill(
     }
   }
 
-  const disabilityDeclineAppliedByLabel = await setWorkdayCheckboxByLabelText(
+  const disabilityNoLabel = page.getByText(/No,\s*I do not have a disability/i).first();
+  const disabilityNoAppliedByLabel = await setWorkdayCheckboxByLabelText(
     page,
-    /I\s+do\s+not\s+want\s+to\s+answer|I\s+do\s+not\s+wish\s+to\s+answer|decline\s+to\s+answer/i,
+    /No,\s*I do not have a disability/i,
     true,
   );
-  const disabilityNoLabel = page.getByText(/No,\s*I do not have a disability/i).first();
-  const disabilityNoAppliedByLabel =
-    !disabilityDeclineAppliedByLabel &&
+  const disabilityDeclineAppliedByLabel =
+    !disabilityNoAppliedByLabel &&
     (await setWorkdayCheckboxByLabelText(
       page,
-      /No,\s*I do not have a disability/i,
+      /I\s+do\s+not\s+want\s+to\s+answer|I\s+do\s+not\s+wish\s+to\s+answer|decline\s+to\s+answer/i,
       true,
     ));
-  if (disabilityDeclineAppliedByLabel) {
+  if (disabilityNoAppliedByLabel) {
     filled.push("Workday Disability Status");
-  } else if (disabilityNoAppliedByLabel) {
+  } else if (disabilityDeclineAppliedByLabel) {
     filled.push("Workday Disability Status");
   } else if (await disabilityNoLabel.isVisible().catch(() => false)) {
     const disabilityCheckboxes = page.locator('input[type="checkbox"][id$="-disabilityStatus"]');
@@ -16373,75 +16450,110 @@ function isAcceptableEditableValue(currentValue: string, desiredValue: string): 
   return false;
 }
 
-async function setEditableFieldValue(page: Page, field: Locator, tag: string, value: string): Promise<boolean> {
-  if (tag === "select") {
-    return selectNativeOption(field, [value]);
+async function isDropdownLikeEditableField(field: Locator): Promise<boolean> {
+  return field
+    .evaluate((node) => {
+      const element = node as HTMLElement;
+      const tag = element.tagName.toLowerCase();
+      if (tag !== "input") {
+        return false;
+      }
+
+      const role = element.getAttribute("role") || "";
+      const popup = element.getAttribute("aria-haspopup") || "";
+      const autocomplete = element.getAttribute("aria-autocomplete") || "";
+      const list = element.getAttribute("list") || "";
+      const classes = element.className || "";
+      const container = element.closest(".select, .select__control, [class*='select'], [class*='Select']");
+
+      return (
+        role === "combobox" ||
+        popup === "listbox" ||
+        Boolean(list) ||
+        /list|both/i.test(autocomplete) ||
+        /combobox|typeahead|select/i.test(`${classes}`) ||
+        Boolean(container)
+      );
+    })
+    .catch(() => false);
+}
+
+async function setComboboxFieldValue(page: Page, field: Locator, value: string): Promise<boolean> {
+  const candidates = buildComboboxCandidateValues(value);
+  if (candidates.length === 0) {
+    return false;
   }
 
-  if (tag === "combobox") {
-    const candidates = buildComboboxCandidateValues(value);
-    const elementTag = await field.evaluate((node) => node.tagName.toLowerCase()).catch(() => tag);
-    await field.click({ timeout: 5000 }).catch(() => undefined);
+  const elementTag = await field.evaluate((node) => node.tagName.toLowerCase()).catch(() => "");
+  const searchInput = elementTag === "button" ? field.locator("xpath=following-sibling::input[1]").first() : field;
+  const originalValue = tidy(await field.inputValue().catch(() => ""));
 
-    for (const candidate of candidates) {
-      if (await clickVisibleOptionByText(page, candidate)) {
-        return true;
-      }
+  const openDropdown = async () => {
+    await field.scrollIntoViewIfNeeded().catch(() => undefined);
+    await field.click({ timeout: 5_000, force: true }).catch(() => undefined);
+    await page.waitForTimeout(250).catch(() => undefined);
+  };
 
-      const searchInput =
-        elementTag === "button" ? field.locator("xpath=following-sibling::input[1]").first() : null;
-      if (elementTag === "button") {
-        await searchInput?.fill(candidate).catch(() => undefined);
-      } else {
-        await field.fill(candidate).catch(() => undefined);
+  const clearSearchText = async () => {
+    const target = elementTag === "button" ? searchInput : field;
+    if (await target.isVisible().catch(() => false)) {
+      const currentValue = tidy(await target.inputValue().catch(() => ""));
+      if (!originalValue && candidates.some((candidate) => matchesDesiredChoice(currentValue, candidate))) {
+        await target.fill("").catch(() => undefined);
       }
+    }
+  };
+
+  for (const candidate of candidates) {
+    await openDropdown();
+    if (await clickVisibleOptionByText(page, candidate)) {
+      await page.waitForTimeout(250).catch(() => undefined);
+      return true;
+    }
+
+    const target = elementTag === "button" ? searchInput : field;
+    if (await target.isVisible().catch(() => false)) {
+      await target.fill("").catch(() => undefined);
+      await target.fill(candidate).catch(() => undefined);
       await page
         .waitForSelector('[role="option"], [class*="result"], [class*="option"], [class*="Option"]', {
           timeout: elementTag === "button" ? 900 : 1500,
         })
         .catch(() => undefined);
       await page.waitForTimeout(elementTag === "button" ? 800 : 900).catch(() => undefined);
+
       if (await clickVisibleOptionByText(page, candidate)) {
-        return true;
-      }
-
-      if (elementTag !== "button") {
-        const keyboardTarget = searchInput ?? field;
-        await keyboardTarget.press("ArrowDown").catch(() => undefined);
-        await page.waitForTimeout(100).catch(() => undefined);
-        await keyboardTarget.press("Enter").catch(() => undefined);
         await page.waitForTimeout(250).catch(() => undefined);
-      } else {
-        await page.keyboard.press("Escape").catch(() => undefined);
-        await page.waitForTimeout(150).catch(() => undefined);
-      }
-
-      const inputValue = tidy(await field.inputValue().catch(() => ""));
-      const selectedValue = await readFieldCurrentValue(field, "combobox").catch(() => "");
-      const searchValue = tidy(await searchInput?.inputValue().catch(() => ""));
-      const textValue = tidy(await field.textContent().catch(() => ""));
-      if (
-        matchesDesiredChoice(inputValue, candidate) ||
-        matchesDesiredChoice(selectedValue, candidate) ||
-        matchesDesiredChoice(searchValue, candidate) ||
-        matchesDesiredChoice(textValue, candidate)
-      ) {
         return true;
       }
+
+      await clearSearchText();
     }
 
-    const inputValue = tidy(await field.inputValue().catch(() => ""));
-    const selectedValue = await readFieldCurrentValue(field, "combobox").catch(() => "");
-    const textValue = tidy(await field.textContent().catch(() => ""));
-    return candidates.some(
-      (candidate) =>
-        matchesDesiredChoice(inputValue, candidate) ||
-        matchesDesiredChoice(selectedValue, candidate) ||
-        matchesDesiredChoice(textValue, candidate),
-    );
+    await page.keyboard.press("Escape").catch(() => undefined);
+    await page.waitForTimeout(150).catch(() => undefined);
+  }
+
+  await clearSearchText();
+  await page.keyboard.press("Escape").catch(() => undefined);
+  await page.waitForTimeout(150).catch(() => undefined);
+  return false;
+}
+
+async function setEditableFieldValue(page: Page, field: Locator, tag: string, value: string): Promise<boolean> {
+  if (tag === "select") {
+    return selectNativeOption(field, [value]);
+  }
+
+  if (tag === "combobox") {
+    return setComboboxFieldValue(page, field, value);
   }
 
   if (tag === "textarea" || tag === "input") {
+    if (tag === "input" && (await isDropdownLikeEditableField(field))) {
+      return setComboboxFieldValue(page, field, value);
+    }
+
     await syncEditableFieldValue(page, field, tag, value).catch(() => undefined);
     await page.waitForTimeout(250).catch(() => undefined);
     const inputValue = await field.inputValue().catch(() => "");

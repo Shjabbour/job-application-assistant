@@ -19,3 +19,12 @@ current_external_apply_urls.txt
 /.tmp-docx-size
 /.tmp-docx-update
 *.odttf
+
+# Generated automation/UI artifacts
+/artifacts/
+/artifacts-ui-live-snapshot.yml
+/question-layout-after*.png
+/repro-current
+
+# Separate local scratch workspace
+/leetcode-screen-solver/

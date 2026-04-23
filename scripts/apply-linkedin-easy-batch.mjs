@@ -865,16 +865,57 @@ async function fillTextInputs(page, root) {
     const answer = answerFor(label, meta.type || meta.tag, [], meta.value);
     if (!answer) continue;
     if (cleanText(meta.value) && !shouldOverrideText(label, meta.value, answer)) continue;
-    await field.fill(answer).catch(() => undefined);
     if (/combobox|typeahead/i.test(`${meta.role} ${meta.id}`) || /location/.test(normalize(label))) {
-      await page.waitForTimeout(500);
-      await field.press("ArrowDown").catch(() => undefined);
-      await field.press("Enter").catch(() => undefined);
-      await page.waitForTimeout(350);
+      await chooseInputDropdownOption(page, field, answer);
     } else {
+      await field.fill(answer).catch(() => undefined);
       await page.waitForTimeout(150);
     }
   }
+}
+
+async function chooseInputDropdownOption(page, field, desired) {
+  await field.click({ force: true }).catch(() => undefined);
+  await page.waitForTimeout(250);
+  if (await clickVisibleOptionByText(page, desired)) return true;
+
+  await field.fill("").catch(() => undefined);
+  await field.fill(desired).catch(() => undefined);
+  await page.waitForTimeout(650);
+  if (await clickVisibleOptionByText(page, desired)) return true;
+
+  const currentValue = cleanText(await field.inputValue().catch(() => ""));
+  if (choiceMatches(currentValue, desired)) {
+    await field.fill("").catch(() => undefined);
+  }
+  await page.keyboard.press("Escape").catch(() => undefined);
+  await page.waitForTimeout(150);
+  return false;
+}
+
+async function clickVisibleOptionByText(page, desired) {
+  const locators = [
+    page.locator('[role="option"]'),
+    page.locator('[class*="option"], [class*="Option"]'),
+    page.locator("li"),
+  ];
+
+  for (const locator of locators) {
+    const count = await locator.count().catch(() => 0);
+    for (let index = 0; index < count; index += 1) {
+      const option = locator.nth(index);
+      if (!(await option.isVisible().catch(() => false))) continue;
+      const text = cleanText(await option.textContent().catch(() => ""));
+      if (!choiceMatches(text, desired)) continue;
+      const clicked = await option.click({ force: true, timeout: 3000 }).then(() => true).catch(() => false);
+      if (clicked) {
+        await page.waitForTimeout(250);
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 async function fillCheckboxes(root) {
@@ -949,6 +990,9 @@ function answerFor(label, type, choices = [], currentValue = "") {
   const current = cleanText(currentValue);
 
   if (/date of birth|birthdate|birthday/.test(n)) return "";
+
+  const identityAnswer = humanIdentityAnswer(options);
+  if (identityAnswer) return identityAnswer;
 
   if (/email/.test(n)) {
     if (options.length > 0) return bestChoice(options, preferredEmails) || "";
@@ -1042,23 +1086,31 @@ function answerFor(label, type, choices = [], currentValue = "") {
       "I am not a veteran",
       "I am not a protected veteran",
       "I am not a U.S. military protected veteran",
+      "Non Veteran",
+      "Not a Veteran",
       "No",
     ]);
   }
-  if (/disability|race|ethnicity|hispanic|latino|gender|transgender/.test(n)) {
-    return (
-      bestChoice(options, [
-        "I do not wish to provide this information",
-        "Decline to self identify",
-        "Prefer not to say",
-        "I don't wish to answer",
-        "I do not want to answer",
-        "Not specified",
-      ]) ||
-      (/gender/.test(n) ? bestChoice(options, ["Male"]) : "") ||
-      noChoice(options)
-    );
+  if (/disability/.test(n)) {
+    return bestChoice(options, [
+      "No, I do not have a disability",
+      "No, I don't have a disability",
+      "I do not have a disability",
+      "No",
+    ]) || noChoice(options);
   }
+  if (/hispanic|latino|latina|latine/.test(n)) return noChoice(options);
+  if (/race|ethnicity|ethnic|racial|origin/.test(n)) {
+    return bestChoice(options, [
+      "Middle Eastern or North African",
+      "Middle Eastern",
+      "White",
+      "White / Caucasian",
+      "Caucasian",
+    ]);
+  }
+  if (/transgender/.test(n)) return noChoice(options);
+  if (/gender/.test(n)) return bestChoice(options, ["Male", "Man", "Cisgender man"]);
   if (/language/.test(n)) return "English, Arabic, Spanish, French";
   if (/available|start date|notice period/.test(n)) return "2 weeks";
   if (/why|interest|summary|describe|cover letter|additional information/.test(n)) {
@@ -1092,6 +1144,31 @@ function yesChoice(options) {
 
 function noChoice(options) {
   return bestChoice(options, ["No", "N", "False"]) || "No";
+}
+
+function isAiOrAutomatedProgramIdentityChoice(value) {
+  const n = normalize(value);
+  return (
+    (/\b(ai|artificial intelligence)\b/.test(n) && /\b(automated|automation|program|bot|software|agent)\b/.test(n)) ||
+    /\bautomated program\b|\bbot\b|\bnon human\b/.test(n)
+  );
+}
+
+function isAffirmativeHumanIdentityChoice(value) {
+  const n = normalize(value);
+  if (!n || isAiOrAutomatedProgramIdentityChoice(value) || /\bnot (a )?human\b|\bnon human\b|\bnot (a )?real person\b/.test(n)) {
+    return false;
+  }
+  return (
+    /\bi am (a )?human\b|\bhuman being\b|\bhuman applicant\b|\bhuman candidate\b/.test(n) ||
+    /\breal person\b|\bnatural person\b/.test(n) ||
+    n === "human"
+  );
+}
+
+function humanIdentityAnswer(options) {
+  if (!options.some(isAiOrAutomatedProgramIdentityChoice)) return "";
+  return options.find(isAffirmativeHumanIdentityChoice) || bestChoice(options, ["I am a human being", "Human"]) || "";
 }
 
 function bestChoice(options, desiredValues) {

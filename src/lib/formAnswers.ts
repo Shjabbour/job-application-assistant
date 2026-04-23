@@ -415,6 +415,100 @@ function matchChoice(choices: string[], desiredValue: string): string | null {
   return null;
 }
 
+function isAiOrAutomatedProgramIdentityChoice(value: string): boolean {
+  const normalized = normalize(value);
+  return (
+    /\b(ai|artificial intelligence)\b/.test(normalized) &&
+    /\b(automated|automation|program|bot|software|agent)\b/.test(normalized)
+  ) || /\bautomated program\b|\bbot\b|\bnon human\b/.test(normalized);
+}
+
+function isAffirmativeHumanIdentityChoice(value: string): boolean {
+  const normalized = normalize(value);
+  if (
+    !normalized ||
+    isAiOrAutomatedProgramIdentityChoice(value) ||
+    /\bnot (a )?human\b|\bnon human\b|\bnot (a )?real person\b/.test(normalized)
+  ) {
+    return false;
+  }
+
+  return (
+    /\bi am (a )?human\b|\bhuman being\b|\bhuman applicant\b|\bhuman candidate\b/.test(
+      normalized,
+    ) ||
+    /\breal person\b|\bnatural person\b/.test(normalized) ||
+    normalized === "human"
+  );
+}
+
+export function chooseHumanApplicantIdentityAnswer(question: FormQuestion): string | null {
+  const hasAutomatedProgramChoice = question.choices.some(isAiOrAutomatedProgramIdentityChoice);
+  if (!hasAutomatedProgramChoice) {
+    return null;
+  }
+
+  return (
+    question.choices.find(isAffirmativeHumanIdentityChoice) ||
+    matchChoice(question.choices, "I am a human being") ||
+    matchChoice(question.choices, "Human") ||
+    null
+  );
+}
+
+export function chooseTruthfulDemographicAnswer(question: FormQuestion): string | null {
+  const label = normalize(question.label);
+
+  if (/hispanic|latino|latina|latine/.test(label)) {
+    return matchChoice(question.choices, "No") || matchChoice(question.choices, "No, not Hispanic or Latino");
+  }
+
+  if (/\brace\b|ethnic|racial|origin/.test(label)) {
+    return (
+      matchChoice(question.choices, "Middle Eastern or North African") ||
+      matchChoice(question.choices, "Middle Eastern") ||
+      matchChoice(question.choices, "White") ||
+      matchChoice(question.choices, "White / Caucasian") ||
+      matchChoice(question.choices, "Caucasian")
+    );
+  }
+
+  if (/disability/.test(label)) {
+    return (
+      matchChoice(question.choices, "No, I do not have a disability") ||
+      matchChoice(question.choices, "No, I don't have a disability") ||
+      matchChoice(question.choices, "I do not have a disability") ||
+      matchChoice(question.choices, "No")
+    );
+  }
+
+  if (/veteran|military service/.test(label)) {
+    return (
+      matchChoice(question.choices, "I am not a veteran") ||
+      matchChoice(question.choices, "I am not a protected Veteran") ||
+      matchChoice(question.choices, "I am not a U.S. military protected veteran") ||
+      matchChoice(question.choices, "Non Veteran") ||
+      matchChoice(question.choices, "Not a Veteran") ||
+      matchChoice(question.choices, "No military service") ||
+      matchChoice(question.choices, "No")
+    );
+  }
+
+  if (/transgender/.test(label)) {
+    return matchChoice(question.choices, "No");
+  }
+
+  if (/\bgender\b|what is your sex|\bsex\b/.test(label)) {
+    return (
+      matchChoice(question.choices, "Male") ||
+      matchChoice(question.choices, "Man") ||
+      matchChoice(question.choices, "Cisgender man")
+    );
+  }
+
+  return null;
+}
+
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -611,9 +705,9 @@ function answerFromProfile(question: FormQuestion, profile: Profile): SuggestedF
                                 label.includes("position id")
                               ? "N/A"
                             : label.includes("gender identity")
-                              ? "Prefer not to disclose"
+                              ? "Male"
                             : label.includes("race identity")
-                              ? "I do not wish to provide this information"
+                              ? "White"
                             : label.includes("hispanic or latino")
                               ? "No"
                             : label.includes("transgender")
@@ -621,7 +715,7 @@ function answerFromProfile(question: FormQuestion, profile: Profile): SuggestedF
                             : label.includes("sexual orientation")
                               ? "I do not wish to provide this information"
                             : label.includes("ethnicit") || (label.includes("race") && label.includes("identify"))
-                              ? "I do not wish to provide this information"
+                              ? "White"
                             : label.includes("disability")
                               ? "No"
                             : label.includes("veteran") || label.includes("served in the military")
@@ -958,6 +1052,24 @@ export function suggestFormAnswer(
   savedAnswer?: string | null,
   source: SuggestedFormAnswer["source"] = "question-bank",
 ): SuggestedFormAnswer | null {
+  const humanIdentityAnswer = chooseHumanApplicantIdentityAnswer(question);
+  if (humanIdentityAnswer) {
+    return {
+      value: humanIdentityAnswer,
+      source: "profile-heuristic",
+      reason: "Matched a human-vs-automated-program identity question.",
+    };
+  }
+
+  const demographicAnswer = chooseTruthfulDemographicAnswer(question);
+  if (demographicAnswer) {
+    return {
+      value: demographicAnswer,
+      source: "profile-heuristic",
+      reason: "Matched a demographic question to a truthful profile-backed default.",
+    };
+  }
+
   if (savedAnswer?.trim()) {
     const value = chooseValue(question, savedAnswer);
     if (value) {
