@@ -233,6 +233,10 @@ function appendPrompt(previous: string | null, transcript: string): string {
   return `${cleanPrevious}\n\n${cleanTranscript}`;
 }
 
+function appendFollowUp(previous: string | null, transcript: string): string {
+  return appendPrompt(previous, transcript);
+}
+
 export function observeTranscriptLocally(state: QuestionState, transcript: string): ObservationResult {
   const cleanTranscript = normalize(transcript);
   if (isSelfCaptureNoise(cleanTranscript)) {
@@ -253,6 +257,7 @@ export function observeTranscriptLocally(state: QuestionState, transcript: strin
   const extractedTitle = extractLikelyTitle(`${cleanTranscript} ${cumulativePrompt}`) ?? null;
   const missingInformation = missingDetails(kind, cumulativePrompt);
   const hasSignal = hasQuestionSignal(cleanTranscript) || Boolean(state.question.prompt);
+  const hasExistingPrompt = Boolean(state.question.prompt);
   const readyToAnswer = kind !== "other" && hasSignal && missingInformation.length === 0;
 
   return {
@@ -269,7 +274,7 @@ export function observeTranscriptLocally(state: QuestionState, transcript: strin
       functionSignature: state.question.functionSignature,
       starterCode: state.question.starterCode,
       visibleCode: state.question.visibleCode,
-      followUp: state.question.prompt ? cleanTranscript : state.question.followUp,
+      followUp: hasExistingPrompt ? appendFollowUp(state.question.followUp, cleanTranscript) : state.question.followUp,
       interviewerContext: state.question.interviewerContext,
       notes: state.question.notes,
     },

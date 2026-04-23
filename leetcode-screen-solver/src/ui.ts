@@ -9,6 +9,7 @@ import { extractMarkdownSection } from "./markdown.js";
 import { buildAnswerPrompt } from "./prompts.js";
 import { captureScreen, listDisplays, makeRunId } from "./screen.js";
 import { observeScreenshotLocally } from "./screenshotObservation.js";
+import { observeTranscriptLocally } from "./localTranscript.js";
 import { createEmptyState, mergeObservation } from "./state.js";
 import type { AnswerHandoff, DisplayInfo, QuestionState } from "./types.js";
 
@@ -98,32 +99,23 @@ __CSS__
             <span id="lastUpdated" class="status-text" title="Capture timer">00:00</span>
           </div>
           <div class="tab-strip" role="tablist" aria-label="Question and answer views">
-            <button id="answerTab" class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="answerPanel" title="Switch to Answer tab (A)">Answer (A)</button>
-            <button id="questionTab" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="questionPanel" title="Switch to Question tab (Q)">Question (Q)</button>
+            <button id="answerTab" class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="answerPanel" title="Switch to Answer tab">Answer</button>
+            <button id="questionTab" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="questionPanel" title="Switch to Question tab">Question</button>
           </div>
           <div class="monitor-dock">
             <button id="overlayToggle" class="overlay-toggle" type="button" aria-expanded="true" title="Capture monitor"></button>
             <div id="overlayPanel" class="overlay-panel">
-              <div class="overlay-row">
-                <span id="connection">Connecting...</span>
-                <label class="toggle">
-                  <input id="autoRefresh" type="checkbox" checked>
-                  <span>Live</span>
-                </label>
-              </div>
               <p id="monitorStatus" class="monitor-status">Not monitoring</p>
               <label class="field">
                 <span>Screen</span>
                 <select id="screenSelect"></select>
               </label>
               <div class="overlay-actions">
-                <button id="answerButton" class="small-button" type="button" title="Generate an answer from current captures (F)">Answer (F)</button>
-                <button id="captureButton" class="small-button" type="button" title="Capture the current screen for this question (C)">Capture (C)</button>
-                <button id="startMonitorButton" class="small-button" type="button" title="Reset for a new question without capturing (N)">New (N)</button>
-                <button id="stopMonitorButton" class="small-button danger" type="button" title="Stop monitoring (S)">Stop (S)</button>
-                <button id="refreshButton" class="small-button" type="button" title="Refresh now (R)">Refresh (R)</button>
+                <button id="answerButton" class="small-button" type="button" title="Generate an answer from current captures">Answer</button>
+                <button id="captureButton" class="small-button" type="button" title="Capture the current screen for this question">Capture</button>
+                <button id="startMonitorButton" class="small-button" type="button" title="Reset for a new question without capturing">New</button>
+                <button id="stopMonitorButton" class="small-button danger" type="button" title="Stop monitoring">Stop</button>
               </div>
-              <span class="live-status" title="Toggle live refresh (T)"><span id="liveDot" class="live-dot"></span><span>Live (T)</span></span>
               <div id="monitorMap" class="monitor-map" aria-label="Monitor layout"></div>
             </div>
           </div>
@@ -133,8 +125,8 @@ __CSS__
       <div class="content-stack">
         <section id="answerPanel" class="answer-pane" role="tabpanel" aria-labelledby="answerTab">
           <div id="answerModeTabs" class="answer-mode-tabs hidden" role="tablist" aria-label="Answer walkthroughs">
-            <button id="firstTryAnswerTab" class="answer-mode-button active" type="button" role="tab" aria-selected="true" aria-controls="answerView" title="Switch to First Try walkthrough (W)">First Try (W)</button>
-            <button id="robustAnswerTab" class="answer-mode-button" type="button" role="tab" aria-selected="false" aria-controls="answerView" title="Switch to Robust walkthrough (E)">Robust (E)</button>
+            <button id="firstTryAnswerTab" class="answer-mode-button active" type="button" role="tab" aria-selected="true" aria-controls="answerView" title="Switch to First Try walkthrough">First Try</button>
+            <button id="robustAnswerTab" class="answer-mode-button" type="button" role="tab" aria-selected="false" aria-controls="answerView" title="Switch to Robust walkthrough">Robust</button>
           </div>
           <div id="answerView" class="markdown answer-markdown">Solution will appear after the question is ready.</div>
           <section id="hintsSection" class="hints-section hidden">
@@ -148,7 +140,12 @@ __CSS__
             <p id="screenshotMeta" class="screenshot-meta"></p>
             <div id="screenshotGallery" class="screenshot-gallery" aria-live="polite" role="list"></div>
           </div>
-          <div id="questionBody" class="markdown empty">Start watch mode and capture a question.</div>
+          <div id="questionBody" class="markdown empty">Capture a screen, listen, or type the question.</div>
+          <form id="questionInputForm" class="question-input" autocomplete="off">
+            <textarea id="questionInput" rows="3" placeholder="Type or dictate the question"></textarea>
+            <button id="listenButton" class="small-button" type="button" aria-pressed="false" title="Dictate into the text box">Listen</button>
+            <button id="questionSubmitButton" class="small-button" type="submit" title="Send question text">Send</button>
+          </form>
         </section>
       </div>
     </main>
@@ -198,7 +195,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -266,16 +264,6 @@ input {
   border-bottom: 1px solid var(--border);
 }
 
-.toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.toggle input {
-  accent-color: var(--accent);
-}
-
 .monitor-panel {
   padding: 14px 12px;
   border-bottom: 1px solid var(--border);
@@ -319,6 +307,12 @@ input {
 
 .small-button.danger {
   color: var(--danger);
+}
+
+.small-button.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
 }
 
 .small-button:disabled {
@@ -804,6 +798,40 @@ input {
   min-height: clamp(180px, 34%, 320px);
 }
 
+.question-input {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px 86px;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+  background: #f8fafb;
+}
+
+.question-input textarea {
+  width: 100%;
+  min-height: 70px;
+  max-height: 180px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+  padding: 10px 12px;
+  line-height: 1.45;
+}
+
+.question-input textarea:focus {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 1px;
+}
+
+.question-input .small-button {
+  align-self: stretch;
+  width: 100%;
+  min-width: 0;
+}
+
 .screenshot-meta {
   margin: 0 0 8px;
   color: #cdd7e0;
@@ -956,17 +984,6 @@ input {
   cursor: pointer;
 }
 
-.live-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #9aa7b2;
-}
-
-.live-dot.on {
-  background: #12b76a;
-}
-
 .overlay-panel {
   width: 100%;
   border: 0;
@@ -979,16 +996,6 @@ input {
   justify-content: flex-end;
   gap: 8px;
   min-width: 0;
-}
-
-.overlay-row {
-  display: none;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin: 0;
-  font-size: 13px;
-  color: var(--muted);
 }
 
 .monitor-status {
@@ -1080,24 +1087,6 @@ input {
   box-shadow: inset 0 0 0 2px var(--accent-line);
 }
 
-.live-status {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 34px;
-  min-width: 76px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: #ffffff;
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
 .overlay-actions {
   display: flex;
   flex: 0 0 auto;
@@ -1180,7 +1169,6 @@ input {
   .monitor-status,
   .field,
   .monitor-map,
-  .live-status,
   .overlay-actions {
     margin-top: 8px;
   }
@@ -1199,7 +1187,7 @@ input {
 
   .overlay-actions {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
     min-width: 0;
   }
@@ -1208,6 +1196,14 @@ input {
     width: 100%;
     min-width: 0;
     padding: 0 6px;
+  }
+
+  .question-input {
+    grid-template-columns: 1fr;
+  }
+
+  .question-input .small-button {
+    min-height: 38px;
   }
 
 }`;
@@ -1228,6 +1224,11 @@ const JS = String.raw`var state = {
   activeAnswerMode: 'firstTry',
   currentRun: null,
   newQuestionPending: false,
+  answerRequestedRunId: null,
+  recognition: null,
+  listening: false,
+  transcriptPost: Promise.resolve(),
+  questionTextSubmitting: false,
 };
 
 var elements = {};
@@ -1708,6 +1709,10 @@ function selectAnswerMode(mode) {
   }
 }
 
+function normalizeDisplayText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
 function questionMarkdown(run) {
   if (!run || !run.state || !run.state.question) {
     return '';
@@ -1732,6 +1737,9 @@ function questionMarkdown(run) {
   }
   if (question.notes && question.notes.length) {
     parts.push('## Notes\n\n' + question.notes.map(function (item) { return '- ' + item; }).join('\n'));
+  }
+  if (question.followUp && normalizeDisplayText(question.prompt).indexOf(normalizeDisplayText(question.followUp)) === -1) {
+    parts.push('## Follow-up\n\n' + question.followUp);
   }
   if (run.state.transcriptText) {
     parts.push('## Transcript\n\n' + run.state.transcriptText);
@@ -1855,7 +1863,6 @@ function renderMonitor() {
     elements.monitorStatus.textContent = 'Switching capture to ' + screenShortLabel(state.pendingScreenId) + '...';
     elements.stopMonitorButton.disabled = false;
     elements.startMonitorButton.disabled = true;
-    elements.liveDot.classList.add('on');
     updateElapsedTimer();
     renderDisplays();
     return;
@@ -1865,19 +1872,19 @@ function renderMonitor() {
     elements.monitorStatus.textContent = 'Monitoring ' + screenShortLabel(monitor.screenId) + '. Click New when the prompt changes.';
     elements.stopMonitorButton.disabled = false;
     elements.startMonitorButton.disabled = !state.displays.length;
-    elements.liveDot.classList.add('on');
   } else if (monitor && monitor.lastError) {
     elements.monitorStatus.textContent = 'Stopped: ' + monitor.lastError;
     elements.stopMonitorButton.disabled = true;
     elements.startMonitorButton.disabled = !state.displays.length || !elements.screenSelect.value;
-    elements.liveDot.classList.remove('on');
   } else {
     elements.monitorStatus.textContent = elements.screenSelect.value
       ? 'Ready: click Capture to grab the selected screen'
       : 'Select a screen first';
     elements.stopMonitorButton.disabled = true;
     elements.startMonitorButton.disabled = !state.displays.length || !elements.screenSelect.value;
-    elements.liveDot.classList.remove('on');
+  }
+  if (state.listening) {
+    elements.monitorStatus.textContent = 'Dictating into the question text box...';
   }
   updateElapsedTimer();
   renderDisplays();
@@ -1896,7 +1903,7 @@ function renderRun(run) {
     elements.titleLabel.textContent = 'Waiting for a captured question';
     elements.readyLabel.textContent = 'Not ready';
     elements.completenessLabel.textContent = '0% captured';
-    elements.questionBody.innerHTML = '<p class="empty">Start watch mode and capture a question.</p>';
+    elements.questionBody.innerHTML = '<p class="empty">Capture a screen, listen, or type the question.</p>';
     renderAnswerContent(null);
     elements.hintsView.innerHTML = '<p class="empty">Hints will appear when available.</p>';
     elements.hintsSection.classList.add('hidden');
@@ -1912,6 +1919,14 @@ function renderRun(run) {
     return;
   }
 
+  var previousRun = state.currentRun;
+  var previousAnswerMarkdown = previousRun && previousRun.id === run.id
+    ? String(previousRun.answerMarkdown || '').trim()
+    : '';
+  var nextAnswerMarkdown = String(run.answerMarkdown || '').trim();
+  var answerJustFinished = Boolean(nextAnswerMarkdown) &&
+    (!previousAnswerMarkdown || state.answerRequestedRunId === run.id);
+
   if (!state.currentRun || state.currentRun.id !== run.id) {
     state.activeAnswerMode = 'firstTry';
   }
@@ -1925,6 +1940,12 @@ function renderRun(run) {
   elements.completenessLabel.textContent = Math.round(run.completenessScore * 100) + '% captured';
   elements.questionBody.innerHTML = renderMarkdown(questionMarkdown(run));
   renderAnswerContent(run);
+  if (answerJustFinished) {
+    state.answerRequestedRunId = null;
+    selectTab('answer');
+    clearAnswerHash();
+    scrollAnswerToTop();
+  }
 
   var answerIncludesHints = /^##\s+Hints\b/im.test(run.answerMarkdown || '');
   var showSeparateHints = Boolean(run.hintsMarkdown && run.hintsMarkdown.trim() && !answerIncludesHints);
@@ -1993,12 +2014,13 @@ function clearForNewCapture(screenId) {
   state.currentRun = null;
   state.currentRunReady = false;
   state.currentRunHasAnswer = false;
+  state.answerRequestedRunId = null;
   elements.kindLabel.textContent = 'New question';
   elements.titleLabel.textContent = 'Ready for a new question';
   elements.readyLabel.textContent = 'Waiting';
   elements.readyLabel.style.color = 'var(--muted)';
   elements.completenessLabel.textContent = '0% captured';
-  elements.questionBody.innerHTML = '<p class="empty">Click Capture when the prompt is visible on ' + escapeHtml(screenShortLabel(screenId)) + '.</p>';
+  elements.questionBody.innerHTML = '<p class="empty">Click Capture when the prompt is visible on ' + escapeHtml(screenShortLabel(screenId)) + ', listen when the interviewer reads it aloud, or type it below.</p>';
   elements.answerView.innerHTML = '<p class="empty">Capture the new question before generating a solution.</p>';
   renderAnswerModeButtons(false);
   elements.hintsView.innerHTML = '<p class="empty">Hints will appear when available.</p>';
@@ -2032,6 +2054,194 @@ async function postJson(url, body) {
     throw new Error(errorText || 'HTTP ' + response.status);
   }
   return response.json();
+}
+
+function recognitionCtor() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+function renderListenButton() {
+  if (!elements.listenButton) {
+    return;
+  }
+  elements.listenButton.textContent = state.listening ? 'Listening...' : 'Listen';
+  elements.listenButton.classList.toggle('active', state.listening);
+  elements.listenButton.setAttribute('aria-pressed', String(state.listening));
+}
+
+function renderQuestionInput() {
+  if (!elements.questionInput || !elements.questionSubmitButton) {
+    return;
+  }
+
+  var hasText = Boolean(String(elements.questionInput.value || '').trim());
+  elements.questionSubmitButton.disabled = state.questionTextSubmitting || !hasText;
+  elements.questionSubmitButton.textContent = state.questionTextSubmitting ? 'Sending...' : 'Send';
+}
+
+function appendQuestionInputText(text) {
+  if (!elements.questionInput) {
+    return;
+  }
+
+  var clean = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!clean) {
+    return;
+  }
+
+  var current = String(elements.questionInput.value || '').trimEnd();
+  elements.questionInput.value = current ? current + ' ' + clean : clean;
+  elements.questionInput.focus();
+  elements.questionInput.setSelectionRange(elements.questionInput.value.length, elements.questionInput.value.length);
+  renderQuestionInput();
+}
+
+function setListening(active) {
+  state.listening = Boolean(active);
+  renderListenButton();
+}
+
+function stopListening() {
+  state.listening = false;
+  if (state.recognition) {
+    state.recognition.onend = null;
+    state.recognition.stop();
+    state.recognition = null;
+  }
+  renderListenButton();
+}
+
+async function postTranscript(text, source) {
+  var clean = String(text || '').trim();
+  if (!clean) {
+    return;
+  }
+
+  var activeRunId = state.monitor && state.monitor.running && state.monitor.activeRunId ? state.monitor.activeRunId : null;
+  var targetRunId = activeRunId || (state.newQuestionPending ? null : state.currentRunId);
+  var isText = source === 'text' || source === 'manual';
+  elements.monitorStatus.textContent = isText ? 'Sending question text...' : 'Processing voice transcript...';
+
+  var detail = await postJson('/api/transcript', {
+    text: clean,
+    runId: targetRunId || undefined,
+  });
+
+  if (detail && detail.id) {
+    state.currentRunId = detail.id;
+    state.newQuestionPending = false;
+  }
+  renderRun(detail);
+  selectTab('question');
+  elements.monitorStatus.textContent = detail && detail.readyToAnswer
+    ? (isText ? 'Question text sent. Click Answer.' : 'Voice question is ready. Click Answer.')
+    : (isText ? 'Question text sent.' : 'Captured voice transcript.');
+}
+
+function queueTranscript(text, source) {
+  state.transcriptPost = state.transcriptPost
+    .catch(function () {})
+    .then(function () {
+      return postTranscript(text, source);
+    });
+  return state.transcriptPost;
+}
+
+async function submitQuestionInput() {
+  if (!elements.questionInput || state.questionTextSubmitting) {
+    return;
+  }
+
+  var text = String(elements.questionInput.value || '').trim();
+  if (!text) {
+    renderQuestionInput();
+    return;
+  }
+
+  state.questionTextSubmitting = true;
+  renderQuestionInput();
+  try {
+    await queueTranscript(text, 'text');
+    elements.questionInput.value = '';
+  } catch (error) {
+    elements.monitorStatus.textContent = error.message || String(error);
+  } finally {
+    state.questionTextSubmitting = false;
+    renderQuestionInput();
+  }
+}
+
+function startListening() {
+  var Recognition = recognitionCtor();
+  if (!Recognition) {
+    elements.monitorStatus.textContent = 'Browser speech recognition is not available in this browser.';
+    return;
+  }
+
+  stopListening();
+  selectTab('question');
+  if (elements.questionInput) {
+    elements.questionInput.focus();
+  }
+  var recognition = new Recognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  recognition.onresult = function (event) {
+    var finalText = '';
+    for (var index = event.resultIndex; index < event.results.length; index += 1) {
+      var result = event.results[index];
+      if (result.isFinal && result[0] && result[0].transcript) {
+        finalText += result[0].transcript + ' ';
+      }
+    }
+
+    if (finalText.trim()) {
+      appendQuestionInputText(finalText);
+      elements.monitorStatus.textContent = 'Dictating into the question text box...';
+    }
+  };
+
+  recognition.onerror = function (event) {
+    var message = event && event.error ? event.error : 'Speech recognition error';
+    elements.monitorStatus.textContent = message;
+    if (message === 'not-allowed' || message === 'service-not-allowed') {
+      setListening(false);
+    }
+  };
+
+  recognition.onend = function () {
+    if (!state.listening) {
+      return;
+    }
+    try {
+      recognition.start();
+    } catch (error) {
+      setListening(false);
+      elements.monitorStatus.textContent = error.message || String(error);
+    }
+  };
+
+  state.recognition = recognition;
+  setListening(true);
+  try {
+    recognition.start();
+    elements.monitorStatus.textContent = 'Dictating into the question text box...';
+  } catch (error) {
+    setListening(false);
+    state.recognition = null;
+    elements.monitorStatus.textContent = error.message || String(error);
+  }
+}
+
+function toggleListening() {
+  if (state.listening) {
+    stopListening();
+    elements.monitorStatus.textContent = 'Stopped listening.';
+    return;
+  }
+  startListening();
 }
 
 async function loadMonitor() {
@@ -2094,6 +2304,7 @@ async function requestAnswer() {
   renderAnswerModeButtons(false);
   elements.answerView.innerHTML = '<p class="empty">Generating answer...</p>';
   state.answering = true;
+  state.answerRequestedRunId = state.currentRunId;
   elements.answerButton.disabled = true;
   elements.answerButton.textContent = 'Generating answer...';
   elements.monitorStatus.textContent = 'Generating answer...';
@@ -2102,11 +2313,12 @@ async function requestAnswer() {
     var url = '/api/runs/' + encodeURIComponent(state.currentRunId) + '/answer';
     await postJson(url, {});
   } catch (error) {
+    state.answerRequestedRunId = null;
     elements.monitorStatus.textContent = error.message || String(error);
   } finally {
     state.answering = false;
     if (elements.answerButton) {
-      elements.answerButton.textContent = 'Answer (F)';
+      elements.answerButton.textContent = 'Answer';
     }
     if (elements.captureButton) {
       elements.captureButton.disabled = state.capturing || !resolveCaptureScreenId();
@@ -2143,7 +2355,7 @@ async function requestCapture() {
 
   try {
     var activeRunId = state.monitor && state.monitor.running && state.monitor.activeRunId ? state.monitor.activeRunId : null;
-    var targetRunId = activeRunId || (state.currentRunHasAnswer ? null : state.currentRunId);
+    var targetRunId = activeRunId || (state.newQuestionPending ? null : state.currentRunId);
     var targetUrl = targetRunId
       ? '/api/runs/' + encodeURIComponent(targetRunId) + '/capture'
       : '/api/capture';
@@ -2162,7 +2374,7 @@ async function requestCapture() {
   } finally {
     state.capturing = false;
     if (elements.captureButton) {
-      elements.captureButton.textContent = 'Capture (C)';
+      elements.captureButton.textContent = 'Capture';
       elements.captureButton.disabled = state.capturing || !resolveCaptureScreenId();
     }
     if (elements.answerButton) {
@@ -2243,7 +2455,6 @@ async function loadRuns() {
 async function loadSelectedRun() {
   state.lastRefreshAt = Date.now();
   try {
-    elements.connection.textContent = 'Connected';
     await loadMonitor();
     await loadRuns();
     if (!state.currentRunId) {
@@ -2258,7 +2469,6 @@ async function loadSelectedRun() {
     renderRun(run);
     updateElapsedTimer();
   } catch (error) {
-    elements.connection.textContent = 'Disconnected';
     elements.monitorStatus.textContent = 'Disconnected';
     elements.answerView.innerHTML = '<p class="empty">UI server is not responding.</p>';
     elements.hintsView.innerHTML = '<p class="empty">UI server is not responding.</p>';
@@ -2272,7 +2482,7 @@ function startTimer() {
   }
   state.timer = setInterval(function () {
     updateElapsedTimer();
-    if (elements.autoRefresh.checked && Date.now() - state.lastRefreshAt >= 2000) {
+    if (Date.now() - state.lastRefreshAt >= 2000) {
       loadSelectedRun();
     }
   }, 1000);
@@ -2314,19 +2524,6 @@ function hotkeysBlocked(event) {
   return tagName === 'input' || tagName === 'textarea';
 }
 
-function toggleLiveRefresh() {
-  if (!elements.autoRefresh) {
-    return;
-  }
-  elements.autoRefresh.checked = !elements.autoRefresh.checked;
-  elements.monitorStatus.textContent = elements.autoRefresh.checked
-    ? 'Live refresh enabled.'
-    : 'Live refresh paused.';
-  if (elements.autoRefresh.checked) {
-    loadSelectedRun();
-  }
-}
-
 function toggleOverlay(forceOpen) {
   var nextOpen = typeof forceOpen === 'boolean'
     ? forceOpen
@@ -2337,26 +2534,26 @@ function toggleOverlay(forceOpen) {
 }
 
 function boot() {
-  ['connection', 'refreshButton', 'autoRefresh', 'lastUpdated', 'monitorStatus', 'startMonitorButton',
+  ['lastUpdated', 'monitorStatus', 'startMonitorButton',
     'stopMonitorButton', 'screenSelect', 'kindLabel', 'titleLabel', 'completenessLabel', 'readyLabel',
     'questionBody', 'screenshotWrap', 'screenshotGallery', 'answerView', 'hintsSection', 'hintsView',
-    'screenshotMeta',
+    'screenshotMeta', 'questionInputForm', 'questionInput', 'questionSubmitButton',
     'answerTab', 'questionTab', 'answerPanel', 'questionPanel',
     'answerModeTabs', 'firstTryAnswerTab', 'robustAnswerTab',
     'monitorMap',
-    'captureButton',
-    'overlayToggle', 'overlayPanel', 'liveDot', 'answerButton'].forEach(function (id) {
+    'captureButton', 'listenButton',
+    'overlayToggle', 'overlayPanel', 'answerButton'].forEach(function (id) {
     elements[id] = byId(id);
   });
 
-  if (!elements.refreshButton || !elements.autoRefresh || !elements.lastUpdated || !elements.screenSelect || !elements.startMonitorButton
+  if (!elements.lastUpdated || !elements.screenSelect || !elements.startMonitorButton
     || !elements.stopMonitorButton || !elements.overlayToggle || !elements.overlayPanel || !elements.answerButton
-    || !elements.captureButton || !elements.monitorStatus || !elements.answerView || !elements.hintsView
-    || !elements.answerModeTabs || !elements.firstTryAnswerTab || !elements.robustAnswerTab) {
+    || !elements.captureButton || !elements.listenButton || !elements.monitorStatus || !elements.answerView || !elements.hintsView
+    || !elements.answerModeTabs || !elements.firstTryAnswerTab || !elements.robustAnswerTab
+    || !elements.questionInputForm || !elements.questionInput || !elements.questionSubmitButton) {
     return;
   }
 
-  elements.refreshButton.addEventListener('click', loadSelectedRun);
   elements.screenSelect.addEventListener('change', function () {
     try {
       localStorage.setItem(SELECTED_SCREEN_KEY, elements.screenSelect.value);
@@ -2380,6 +2577,18 @@ function boot() {
   elements.stopMonitorButton.addEventListener('click', stopMonitor);
   elements.answerButton.addEventListener('click', requestAnswer);
   elements.captureButton.addEventListener('click', requestCapture);
+  elements.listenButton.addEventListener('click', toggleListening);
+  elements.questionInput.addEventListener('input', renderQuestionInput);
+  elements.questionInput.addEventListener('keydown', function (event) {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault();
+      submitQuestionInput();
+    }
+  });
+  elements.questionInputForm.addEventListener('submit', function (event) {
+    event.preventDefault();
+    submitQuestionInput();
+  });
   if (elements.answerTab) {
     elements.answerTab.addEventListener('click', function () { selectTab('answer'); });
   }
@@ -2389,7 +2598,6 @@ function boot() {
   elements.firstTryAnswerTab.addEventListener('click', function () { selectAnswerMode('firstTry'); });
   elements.robustAnswerTab.addEventListener('click', function () { selectAnswerMode('robust'); });
   elements.overlayToggle.addEventListener('click', toggleOverlay);
-  elements.autoRefresh.checked = true;
   document.addEventListener('keydown', function (event) {
     if (event.ctrlKey || event.metaKey || event.altKey) {
       return;
@@ -2431,11 +2639,6 @@ function boot() {
       selectAnswerMode('robust');
       return;
     }
-    if (key === 't') {
-      event.preventDefault();
-      toggleLiveRefresh();
-      return;
-    }
     if (key === 'f') {
       event.preventDefault();
       requestAnswer();
@@ -2444,6 +2647,11 @@ function boot() {
     if (key === 'c') {
       event.preventDefault();
       requestCapture();
+      return;
+    }
+    if (key === 'l') {
+      event.preventDefault();
+      toggleListening();
       return;
     }
     if (key === 'n') {
@@ -2466,6 +2674,7 @@ function boot() {
       toggleOverlay(true);
     }
   });
+  renderQuestionInput();
   startTimer();
   if (elements.answerTab || elements.questionTab || elements.answerPanel || elements.questionPanel) {
     selectTab('answer');
@@ -2654,6 +2863,58 @@ async function clearAnswerArtifacts(runDir: string): Promise<void> {
 
 async function writeQuestionState(runDir: string, state: QuestionState): Promise<void> {
   await writeFile(path.join(runDir, "question-state.json"), `${JSON.stringify(state, null, 2)}\n`, "utf8");
+}
+
+async function writeTranscriptChunk(runDir: string, transcript: string, index: number): Promise<string> {
+  const transcriptDir = path.join(runDir, "transcripts");
+  await mkdir(transcriptDir, { recursive: true });
+  const transcriptPath = path.join(transcriptDir, `chunk-${String(index).padStart(3, "0")}.txt`);
+  await writeFile(transcriptPath, `${transcript.trim()}\n`, "utf8");
+  return transcriptPath;
+}
+
+async function addTranscriptToRun(
+  outDir: string,
+  runId: string,
+  transcript: string,
+): Promise<RunDetail> {
+  const runPath = resolveRunPath(outDir, runId);
+  if (!runPath) {
+    throw new Error("Invalid run id.");
+  }
+
+  const cleanTranscript = transcript.trim();
+  if (!cleanTranscript) {
+    throw new Error("Transcript text is required.");
+  }
+
+  await mkdir(runPath, { recursive: true });
+  const statePath = path.join(runPath, "question-state.json");
+  const currentState = await readOptionalJson<QuestionState>(statePath);
+  const normalizedState = currentState ?? (() => {
+    const created = createEmptyState();
+    created.lastUpdatedAt = new Date().toISOString();
+    return created;
+  })();
+  const transcriptPath = await writeTranscriptChunk(
+    runPath,
+    cleanTranscript,
+    (normalizedState.transcriptPaths?.length ?? 0) + 1,
+  );
+  const observation = observeTranscriptLocally(normalizedState, cleanTranscript);
+  const nextState = mergeObservation(normalizedState, observation, {
+    kind: "transcript",
+    path: transcriptPath,
+    transcriptText: cleanTranscript,
+  });
+
+  await writeQuestionState(runPath, nextState);
+
+  const detail = await readRunDetail(outDir, runId);
+  if (!detail) {
+    throw new Error("Failed to read transcript artifacts.");
+  }
+  return detail;
 }
 
 async function captureScreenshotForRun(
@@ -3253,6 +3514,36 @@ async function handleRequest(
     }
 
     const detail = await captureScreenshotForRun(outDir, runId, screenId);
+    sendJson(res, 200, detail);
+    return;
+  }
+
+  const transcriptRunMatch = pathname.match(/^\/api\/runs\/([^/]+)\/transcript$/);
+  if (transcriptRunMatch?.[1] && req.method === "POST") {
+    const runId = decodeURIComponent(transcriptRunMatch[1]);
+    const body = await readRequestJson(req);
+    const transcript = typeof body.text === "string" ? body.text.trim() : "";
+    if (!transcript) {
+      sendJson(res, 400, { error: "text is required." });
+      return;
+    }
+
+    const detail = await addTranscriptToRun(outDir, runId, transcript);
+    sendJson(res, 200, detail);
+    return;
+  }
+
+  if (pathname === "/api/transcript" && req.method === "POST") {
+    const body = await readRequestJson(req);
+    const requestedRunId = normalizeCaptureRunId(body.runId);
+    const runId = requestedRunId ?? makeRunId();
+    const transcript = typeof body.text === "string" ? body.text.trim() : "";
+    if (!transcript) {
+      sendJson(res, 400, { error: "text is required." });
+      return;
+    }
+
+    const detail = await addTranscriptToRun(outDir, runId, transcript);
     sendJson(res, 200, detail);
     return;
   }
