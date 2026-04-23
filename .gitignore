@@ -25,6 +25,3 @@ current_external_apply_urls.txt
 /artifacts-ui-live-snapshot.yml
 /question-layout-after*.png
 /repro-current
-
-# Separate local scratch workspace
-/leetcode-screen-solver/

@@ -1,0 +1,27 @@
+{
+  "name": "interview-coder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Interview Coder is an interview coaching tool that captures coding prompts from screenshots or speech and builds practice-ready solutions.",
+  "type": "module",
+  "scripts": {
+    "watch": "tsx src/index.ts watch",
+    "once": "tsx src/index.ts once",
+    "image": "tsx src/index.ts image",
+    "clipboard": "tsx src/index.ts clipboard",
+    "listen": "tsx src/index.ts listen",
+    "ui": "tsx src/index.ts ui",
+    "build": "tsc -p tsconfig.json"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "tesseract.js": "^6.0.1"
+  }
+}

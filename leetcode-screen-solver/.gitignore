@@ -1,0 +1,17 @@
+runs/
+dist/
+node_modules/
+.env
+
+# Local generated output
+artifacts/
+runs-*/
+tmp-repro/
+tmp-repro2/
+.tmp/
+*.log
+*.err
+*.out
+.ui-test-pid
+tmp-*.mjs
+*.traineddata
