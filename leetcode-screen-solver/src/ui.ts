@@ -42,9 +42,26 @@ interface RunDetail extends RunSummary {
   state: QuestionState | null;
   answerMarkdown: string;
   hintsMarkdown: string;
+  turns: RunTurnDetail[];
   latestScreenshotUrl: string | null;
   screenshotUrls: string[];
   screenshotCount: number;
+}
+
+interface RunTurnDetail {
+  id: string;
+  kind: "original" | "followup";
+  title: string;
+  questionMarkdown: string;
+  answerMarkdown: string;
+  hintsMarkdown: string;
+  hasAnswer: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface RunTurnArtifact extends RunTurnDetail {
+  state: QuestionState | null;
 }
 
 interface MonitorStatus {
@@ -99,8 +116,8 @@ __CSS__
             <span id="lastUpdated" class="status-text" title="Capture timer">00:00</span>
           </div>
           <div class="tab-strip" role="tablist" aria-label="Question and answer views">
-            <button id="answerTab" class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="answerPanel" title="Switch to Answer tab">Answer</button>
-            <button id="questionTab" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="questionPanel" title="Switch to Question tab">Question</button>
+            <button id="answerTab" class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="answerPanel" title="Switch to Answer tab (A)">Answer (A)</button>
+            <button id="questionTab" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="questionPanel" title="Switch to Question tab (Q)">Question (Q)</button>
           </div>
           <div class="monitor-dock">
             <button id="overlayToggle" class="overlay-toggle" type="button" aria-expanded="true" title="Capture monitor"></button>
@@ -111,10 +128,10 @@ __CSS__
                 <select id="screenSelect"></select>
               </label>
               <div class="overlay-actions">
-                <button id="answerButton" class="small-button" type="button" title="Generate an answer from current captures">Answer</button>
-                <button id="captureButton" class="small-button" type="button" title="Capture the current screen for this question">Capture</button>
-                <button id="startMonitorButton" class="small-button" type="button" title="Reset for a new question without capturing">New</button>
-                <button id="stopMonitorButton" class="small-button danger" type="button" title="Stop monitoring">Stop</button>
+                <button id="answerButton" class="small-button" type="button" title="Generate an answer from current captures (F)">Answer (F)</button>
+                <button id="captureButton" class="small-button" type="button" title="Capture the current screen for this question (C)">Capture (C)</button>
+                <button id="startMonitorButton" class="small-button" type="button" title="Reset for a new question without capturing (N)">New (N)</button>
+                <button id="stopMonitorButton" class="small-button danger" type="button" title="Stop monitoring (S)">Stop (S)</button>
               </div>
               <div id="monitorMap" class="monitor-map" aria-label="Monitor layout"></div>
             </div>
@@ -124,9 +141,10 @@ __CSS__
 
       <div class="content-stack">
         <section id="answerPanel" class="answer-pane" role="tabpanel" aria-labelledby="answerTab">
+          <div id="answerTurnTabs" class="turn-tabs hidden" role="tablist" aria-label="Answer turns"></div>
           <div id="answerModeTabs" class="answer-mode-tabs hidden" role="tablist" aria-label="Answer walkthroughs">
-            <button id="firstTryAnswerTab" class="answer-mode-button active" type="button" role="tab" aria-selected="true" aria-controls="answerView" title="Switch to First Try walkthrough">First Try</button>
-            <button id="robustAnswerTab" class="answer-mode-button" type="button" role="tab" aria-selected="false" aria-controls="answerView" title="Switch to Robust walkthrough">Robust</button>
+            <button id="firstTryAnswerTab" class="answer-mode-button active" type="button" role="tab" aria-selected="true" aria-controls="answerView" title="Switch to First Try walkthrough (W)">First Try (W)</button>
+            <button id="robustAnswerTab" class="answer-mode-button" type="button" role="tab" aria-selected="false" aria-controls="answerView" title="Switch to Robust walkthrough (E)">Robust (E)</button>
           </div>
           <div id="answerView" class="markdown answer-markdown">Solution will appear after the question is ready.</div>
           <section id="hintsSection" class="hints-section hidden">
@@ -136,6 +154,7 @@ __CSS__
         </section>
 
         <section id="questionPanel" class="question-pane hidden" role="tabpanel" aria-labelledby="questionTab">
+          <div id="questionTurnTabs" class="turn-tabs hidden" role="tablist" aria-label="Question turns"></div>
           <div id="screenshotWrap" class="screenshot-wrap hidden">
             <p id="screenshotMeta" class="screenshot-meta"></p>
             <div id="screenshotGallery" class="screenshot-gallery" aria-live="polite" role="list"></div>
@@ -143,8 +162,8 @@ __CSS__
           <div id="questionBody" class="markdown empty">Capture a screen, listen, or type the question.</div>
           <form id="questionInputForm" class="question-input" autocomplete="off">
             <textarea id="questionInput" rows="3" placeholder="Type or dictate the question"></textarea>
-            <button id="listenButton" class="small-button" type="button" aria-pressed="false" title="Dictate into the text box">Listen</button>
-            <button id="questionSubmitButton" class="small-button" type="submit" title="Send question text">Send</button>
+            <button id="listenButton" class="small-button" type="button" aria-pressed="false" title="Dictate into the text box (L)">Listen (L)</button>
+            <button id="questionSubmitButton" class="small-button" type="submit" title="Send question text (Ctrl+Enter)">Send (Ctrl+Enter)</button>
           </form>
         </section>
       </div>
@@ -525,6 +544,54 @@ textarea {
   padding: 4px;
   border-bottom: 1px solid var(--border);
   background: #f8fafb;
+}
+
+.turn-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  background: #f4f8f8;
+}
+
+.turn-tab-button {
+  min-height: 32px;
+  min-width: 112px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #ffffff;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.turn-tab-button:hover {
+  color: var(--text);
+  background: #f9fbfc;
+}
+
+.turn-tab-button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.turn-tab-button.pending::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 7px;
+  border-radius: 999px;
+  background: var(--amber);
+  vertical-align: 1px;
 }
 
 .answer-mode-button {
@@ -1222,9 +1289,11 @@ const JS = String.raw`var state = {
   answering: false,
   activeTab: 'answer',
   activeAnswerMode: 'firstTry',
+  activeTurnId: null,
   currentRun: null,
   newQuestionPending: false,
   answerRequestedRunId: null,
+  answerRequestedTurnId: null,
   recognition: null,
   listening: false,
   transcriptPost: Promise.resolve(),
@@ -1262,6 +1331,14 @@ function displayById(screenId) {
 function screenShortLabel(screenId) {
   var display = displayById(screenId);
   return display ? displayShortLabel(display) : 'screen ' + screenId;
+}
+
+function defaultDisplayId() {
+  if (!state.displays.length) {
+    return '';
+  }
+  var primary = state.displays.find(function (display) { return display.primary; });
+  return String((primary || state.displays[0]).id);
 }
 
 function displayMapText(display) {
@@ -1678,21 +1755,98 @@ function scrollAnswerToTop() {
   window.scrollTo(0, 0);
 }
 
+function runTurns(run) {
+  return run && Array.isArray(run.turns) ? run.turns : [];
+}
+
+function latestTurnId(run) {
+  var turns = runTurns(run);
+  return turns.length ? turns[turns.length - 1].id : null;
+}
+
+function selectedTurn(run) {
+  var turns = runTurns(run);
+  if (!turns.length) {
+    return null;
+  }
+
+  var selected = turns.find(function (turn) { return turn.id === state.activeTurnId; });
+  return selected || turns[turns.length - 1];
+}
+
+function selectedAnswerMarkdown(run) {
+  var turn = selectedTurn(run);
+  return turn ? (turn.answerMarkdown || '') : (run && run.answerMarkdown ? run.answerMarkdown : '');
+}
+
+function selectedHintsMarkdown(run) {
+  var turn = selectedTurn(run);
+  return turn ? (turn.hintsMarkdown || '') : (run && run.hintsMarkdown ? run.hintsMarkdown : '');
+}
+
+function selectedTurnLabel(run) {
+  var turn = selectedTurn(run);
+  return turn ? turn.title : 'Question';
+}
+
+function selectedTurnReadyForAnswer(run) {
+  var turn = selectedTurn(run);
+  if (turn && turn.kind === 'followup') {
+    return Boolean(turn.questionMarkdown && turn.questionMarkdown.trim());
+  }
+  return Boolean(run && run.readyToAnswer);
+}
+
+function renderTurnTabList(container, run) {
+  if (!container) {
+    return;
+  }
+
+  var turns = runTurns(run);
+  container.innerHTML = '';
+  container.classList.toggle('hidden', turns.length === 0);
+  if (!turns.length) {
+    return;
+  }
+
+  turns.forEach(function (turn) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'turn-tab-button' +
+      (turn.id === state.activeTurnId ? ' active' : '') +
+      (turn.hasAnswer ? '' : ' pending');
+    button.setAttribute('role', 'tab');
+    button.setAttribute('aria-selected', String(turn.id === state.activeTurnId));
+    button.textContent = turn.title;
+    button.title = turn.hasAnswer ? turn.title : turn.title + ' needs an answer';
+    button.addEventListener('click', function () {
+      selectTurn(turn.id);
+    });
+    container.appendChild(button);
+  });
+}
+
+function renderTurnTabs(run) {
+  renderTurnTabList(elements.answerTurnTabs, run);
+  renderTurnTabList(elements.questionTurnTabs, run);
+}
+
 function renderAnswerContent(run) {
-  var hasAnswerMarkdown = Boolean(run && run.answerMarkdown && run.answerMarkdown.trim());
+  var answerMarkdown = selectedAnswerMarkdown(run);
+  var hasAnswerMarkdown = Boolean(answerMarkdown && answerMarkdown.trim());
   if (hasAnswerMarkdown) {
-    var useWalkthroughTabs = answerHasWalkthroughTabs(run.answerMarkdown);
+    var useWalkthroughTabs = answerHasWalkthroughTabs(answerMarkdown);
     renderAnswerModeButtons(useWalkthroughTabs);
     var markdown = useWalkthroughTabs
-      ? answerMarkdownForMode(run.answerMarkdown, state.activeAnswerMode)
-      : run.answerMarkdown;
+      ? answerMarkdownForMode(answerMarkdown, state.activeAnswerMode)
+      : answerMarkdown;
     elements.answerView.innerHTML = renderMarkdown(markdown, { sectioned: true, summary: false });
     return;
   }
 
   renderAnswerModeButtons(false);
-  if (run && run.readyToAnswer) {
-    elements.answerView.innerHTML = '<p class="empty">Question is ready. Click Answer to generate a solution.</p>';
+  if (selectedTurnReadyForAnswer(run)) {
+    elements.answerView.innerHTML = '<p class="empty">' + escapeHtml(selectedTurnLabel(run)) + ' is ready. Click Answer to generate a solution.</p>';
     return;
   }
 
@@ -1701,12 +1855,41 @@ function renderAnswerContent(run) {
 
 function selectAnswerMode(mode) {
   state.activeAnswerMode = mode === 'robust' ? 'robust' : 'firstTry';
-  renderAnswerModeButtons(Boolean(state.currentRun && state.currentRun.answerMarkdown));
+  renderAnswerModeButtons(Boolean(selectedAnswerMarkdown(state.currentRun)));
   if (state.currentRun) {
     renderAnswerContent(state.currentRun);
     clearAnswerHash();
     scrollAnswerToTop();
   }
+}
+
+function renderHintsContent(run) {
+  var answerMarkdown = selectedAnswerMarkdown(run);
+  var hintsMarkdown = selectedHintsMarkdown(run);
+  var answerIncludesHints = /^##\s+Hints\b/im.test(answerMarkdown || '');
+  var showSeparateHints = Boolean(hintsMarkdown && hintsMarkdown.trim() && !answerIncludesHints);
+  elements.hintsSection.classList.toggle('hidden', !showSeparateHints);
+  if (showSeparateHints) {
+    elements.hintsView.innerHTML = renderMarkdown(hintsMarkdown);
+  } else {
+    elements.hintsView.innerHTML = '';
+  }
+}
+
+function selectTurn(turnId) {
+  if (state.activeTurnId !== turnId) {
+    state.activeAnswerMode = 'firstTry';
+  }
+  state.activeTurnId = turnId || null;
+  if (!state.currentRun) {
+    return;
+  }
+  renderTurnTabs(state.currentRun);
+  elements.questionBody.innerHTML = renderMarkdown(questionMarkdown(state.currentRun));
+  renderAnswerContent(state.currentRun);
+  renderHintsContent(state.currentRun);
+  clearAnswerHash();
+  scrollAnswerToTop();
 }
 
 function normalizeDisplayText(value) {
@@ -1716,6 +1899,11 @@ function normalizeDisplayText(value) {
 function questionMarkdown(run) {
   if (!run || !run.state || !run.state.question) {
     return '';
+  }
+
+  var turn = selectedTurn(run);
+  if (turn && turn.questionMarkdown && turn.questionMarkdown.trim()) {
+    return turn.questionMarkdown;
   }
 
   var question = run.state.question;
@@ -1802,7 +1990,7 @@ function renderDisplays() {
     ? String(state.monitor.screenId)
     : '';
   var pendingScreen = state.pendingScreenId ? String(state.pendingScreenId) : '';
-  var activeScreen = previousValue || pendingScreen || savedValue || activeMonitorScreen;
+  var activeScreen = previousValue || pendingScreen || savedValue || activeMonitorScreen || defaultDisplayId();
   elements.screenSelect.innerHTML = '';
 
   var placeholder = document.createElement('option');
@@ -1871,17 +2059,21 @@ function renderMonitor() {
   if (monitor && monitor.running) {
     elements.monitorStatus.textContent = 'Monitoring ' + screenShortLabel(monitor.screenId) + '. Click New when the prompt changes.';
     elements.stopMonitorButton.disabled = false;
-    elements.startMonitorButton.disabled = !state.displays.length;
+    elements.startMonitorButton.disabled = false;
   } else if (monitor && monitor.lastError) {
     elements.monitorStatus.textContent = 'Stopped: ' + monitor.lastError;
     elements.stopMonitorButton.disabled = true;
-    elements.startMonitorButton.disabled = !state.displays.length || !elements.screenSelect.value;
+    elements.startMonitorButton.disabled = false;
+  } else if (state.newQuestionPending) {
+    elements.monitorStatus.textContent = 'Ready for a new question. Type, dictate, or choose a screen to capture.';
+    elements.stopMonitorButton.disabled = true;
+    elements.startMonitorButton.disabled = false;
   } else {
     elements.monitorStatus.textContent = elements.screenSelect.value
       ? 'Ready: click Capture to grab the selected screen'
       : 'Select a screen first';
     elements.stopMonitorButton.disabled = true;
-    elements.startMonitorButton.disabled = !state.displays.length || !elements.screenSelect.value;
+    elements.startMonitorButton.disabled = false;
   }
   if (state.listening) {
     elements.monitorStatus.textContent = 'Dictating into the question text box...';
@@ -1899,11 +2091,13 @@ function renderRun(run) {
     state.currentRun = null;
     state.currentRunReady = false;
     state.currentRunHasAnswer = false;
+    state.activeTurnId = null;
     elements.kindLabel.textContent = 'No run selected';
     elements.titleLabel.textContent = 'Waiting for a captured question';
     elements.readyLabel.textContent = 'Not ready';
     elements.completenessLabel.textContent = '0% captured';
     elements.questionBody.innerHTML = '<p class="empty">Capture a screen, listen, or type the question.</p>';
+    renderTurnTabs(null);
     renderAnswerContent(null);
     elements.hintsView.innerHTML = '<p class="empty">Hints will appear when available.</p>';
     elements.hintsSection.classList.add('hidden');
@@ -1921,45 +2115,51 @@ function renderRun(run) {
 
   var previousRun = state.currentRun;
   var previousAnswerMarkdown = previousRun && previousRun.id === run.id
-    ? String(previousRun.answerMarkdown || '').trim()
+    ? String(selectedAnswerMarkdown(previousRun) || '').trim()
     : '';
-  var nextAnswerMarkdown = String(run.answerMarkdown || '').trim();
-  var answerJustFinished = Boolean(nextAnswerMarkdown) &&
-    (!previousAnswerMarkdown || state.answerRequestedRunId === run.id);
 
   if (!state.currentRun || state.currentRun.id !== run.id) {
     state.activeAnswerMode = 'firstTry';
+    state.activeTurnId = latestTurnId(run);
+  } else {
+    var turns = runTurns(run);
+    var hasActiveTurn = state.activeTurnId && turns.some(function (turn) { return turn.id === state.activeTurnId; });
+    if (turns.length && !hasActiveTurn) {
+      state.activeTurnId = latestTurnId(run);
+      state.activeAnswerMode = 'firstTry';
+    } else if (!turns.length) {
+      state.activeTurnId = null;
+    }
   }
   state.currentRun = run;
   state.currentRunReady = Boolean(run.readyToAnswer);
   state.currentRunHasAnswer = Boolean(run.hasAnswer);
+  var nextAnswerMarkdown = String(selectedAnswerMarkdown(run) || '').trim();
+  var answerJustFinished = Boolean(nextAnswerMarkdown) &&
+    (!previousAnswerMarkdown || (state.answerRequestedRunId === run.id &&
+      (!state.answerRequestedTurnId || state.answerRequestedTurnId === state.activeTurnId)));
   elements.kindLabel.textContent = run.kind;
   elements.titleLabel.textContent = run.title;
   elements.readyLabel.textContent = run.readyToAnswer ? 'Ready' : 'Capturing';
   elements.readyLabel.style.color = run.readyToAnswer ? 'var(--accent)' : 'var(--amber)';
   elements.completenessLabel.textContent = Math.round(run.completenessScore * 100) + '% captured';
+  renderTurnTabs(run);
   elements.questionBody.innerHTML = renderMarkdown(questionMarkdown(run));
   renderAnswerContent(run);
   if (answerJustFinished) {
     state.answerRequestedRunId = null;
+    state.answerRequestedTurnId = null;
     selectTab('answer');
     clearAnswerHash();
     scrollAnswerToTop();
   }
 
-  var answerIncludesHints = /^##\s+Hints\b/im.test(run.answerMarkdown || '');
-  var showSeparateHints = Boolean(run.hintsMarkdown && run.hintsMarkdown.trim() && !answerIncludesHints);
-  elements.hintsSection.classList.toggle('hidden', !showSeparateHints);
-  if (showSeparateHints) {
-    elements.hintsView.innerHTML = renderMarkdown(run.hintsMarkdown);
-  } else {
-    elements.hintsView.innerHTML = '';
-  }
+  renderHintsContent(run);
 
   setScreenshotGallery(run);
 
   if (elements.answerButton) {
-    elements.answerButton.disabled = state.answering || state.capturing || !state.currentRunReady;
+    elements.answerButton.disabled = state.answering || state.capturing || !selectedTurnReadyForAnswer(run);
   }
   if (elements.captureButton) {
     elements.captureButton.disabled = state.capturing || !resolveCaptureScreenId();
@@ -2001,26 +2201,37 @@ function resolveCaptureScreenId() {
     return state.monitor.screenId;
   }
 
-  if (!elements.screenSelect) {
+  if (!elements.screenSelect && !state.displays.length) {
     return null;
   }
 
-  var selectedScreenId = Number(elements.screenSelect.value);
-  return Number.isFinite(selectedScreenId) && selectedScreenId > 0 ? selectedScreenId : null;
+  var selectedScreenId = elements.screenSelect ? Number(elements.screenSelect.value) : NaN;
+  if (Number.isFinite(selectedScreenId) && selectedScreenId > 0) {
+    return selectedScreenId;
+  }
+
+  var fallbackScreenId = Number(defaultDisplayId());
+  return Number.isFinite(fallbackScreenId) && fallbackScreenId > 0 ? fallbackScreenId : null;
 }
 
 function clearForNewCapture(screenId) {
+  var hasScreen = Number.isFinite(Number(screenId)) && Number(screenId) > 0;
   state.currentRunId = null;
   state.currentRun = null;
   state.currentRunReady = false;
   state.currentRunHasAnswer = false;
   state.answerRequestedRunId = null;
+  state.answerRequestedTurnId = null;
+  state.activeTurnId = null;
   elements.kindLabel.textContent = 'New question';
   elements.titleLabel.textContent = 'Ready for a new question';
   elements.readyLabel.textContent = 'Waiting';
   elements.readyLabel.style.color = 'var(--muted)';
   elements.completenessLabel.textContent = '0% captured';
-  elements.questionBody.innerHTML = '<p class="empty">Click Capture when the prompt is visible on ' + escapeHtml(screenShortLabel(screenId)) + ', listen when the interviewer reads it aloud, or type it below.</p>';
+  elements.questionBody.innerHTML = hasScreen
+    ? '<p class="empty">Click Capture when the prompt is visible on ' + escapeHtml(screenShortLabel(screenId)) + ', listen when the interviewer reads it aloud, or type it below.</p>'
+    : '<p class="empty">Type or dictate the question below, or choose a screen and click Capture.</p>';
+  renderTurnTabs(null);
   elements.answerView.innerHTML = '<p class="empty">Capture the new question before generating a solution.</p>';
   renderAnswerModeButtons(false);
   elements.hintsView.innerHTML = '<p class="empty">Hints will appear when available.</p>';
@@ -2130,6 +2341,8 @@ async function postTranscript(text, source) {
   if (detail && detail.id) {
     state.currentRunId = detail.id;
     state.newQuestionPending = false;
+    state.activeTurnId = latestTurnId(detail);
+    state.activeAnswerMode = 'firstTry';
   }
   renderRun(detail);
   selectTab('question');
@@ -2294,7 +2507,7 @@ async function stopMonitor() {
 }
 
 async function requestAnswer() {
-  if (!state.currentRunId || !state.currentRunReady || !elements.answerButton || state.answering || state.capturing) {
+  if (!state.currentRunId || !selectedTurnReadyForAnswer(state.currentRun) || !elements.answerButton || state.answering || state.capturing) {
     return;
   }
 
@@ -2305,20 +2518,22 @@ async function requestAnswer() {
   elements.answerView.innerHTML = '<p class="empty">Generating answer...</p>';
   state.answering = true;
   state.answerRequestedRunId = state.currentRunId;
+  state.answerRequestedTurnId = state.activeTurnId;
   elements.answerButton.disabled = true;
   elements.answerButton.textContent = 'Generating answer...';
   elements.monitorStatus.textContent = 'Generating answer...';
 
   try {
     var url = '/api/runs/' + encodeURIComponent(state.currentRunId) + '/answer';
-    await postJson(url, {});
+    await postJson(url, { turnId: state.activeTurnId || undefined });
   } catch (error) {
     state.answerRequestedRunId = null;
+    state.answerRequestedTurnId = null;
     elements.monitorStatus.textContent = error.message || String(error);
   } finally {
     state.answering = false;
     if (elements.answerButton) {
-      elements.answerButton.textContent = 'Answer';
+      elements.answerButton.textContent = 'Answer (F)';
     }
     if (elements.captureButton) {
       elements.captureButton.disabled = state.capturing || !resolveCaptureScreenId();
@@ -2363,6 +2578,8 @@ async function requestCapture() {
     if (detail && detail.id) {
       state.currentRunId = detail.id;
       state.newQuestionPending = false;
+      state.activeTurnId = latestTurnId(detail);
+      state.activeAnswerMode = 'firstTry';
     }
     renderRun(detail);
     if (detail && detail.id) {
@@ -2374,11 +2591,11 @@ async function requestCapture() {
   } finally {
     state.capturing = false;
     if (elements.captureButton) {
-      elements.captureButton.textContent = 'Capture';
+      elements.captureButton.textContent = 'Capture (C)';
       elements.captureButton.disabled = state.capturing || !resolveCaptureScreenId();
     }
     if (elements.answerButton) {
-      elements.answerButton.disabled = state.answering || state.capturing || !state.currentRunReady;
+      elements.answerButton.disabled = state.answering || state.capturing || !selectedTurnReadyForAnswer(state.currentRun);
     }
   }
 }
@@ -2386,23 +2603,21 @@ async function requestCapture() {
 async function startNewQuestion(screenId) {
   try {
     var selectedScreenId = Number(screenId || elements.screenSelect.value);
-    if (!Number.isFinite(selectedScreenId) || selectedScreenId <= 0) {
-      elements.monitorStatus.textContent = 'Choose a screen first.';
-      if (elements.screenSelect.options.length) {
-        elements.screenSelect.focus();
+    var hasScreen = Number.isFinite(selectedScreenId) && selectedScreenId > 0;
+    if (hasScreen) {
+      try {
+        localStorage.setItem(SELECTED_SCREEN_KEY, String(selectedScreenId));
+      } catch (_error) {
       }
-      return;
-    }
-    try {
-      localStorage.setItem(SELECTED_SCREEN_KEY, String(selectedScreenId));
-    } catch (_error) {
     }
 
-    state.pendingScreenId = selectedScreenId;
+    state.pendingScreenId = hasScreen ? selectedScreenId : null;
     state.newQuestionPending = true;
-    clearForNewCapture(selectedScreenId);
+    clearForNewCapture(hasScreen ? selectedScreenId : null);
     selectTab('question');
-    elements.monitorStatus.textContent = 'Ready for a new question. Click Capture when the prompt is visible.';
+    elements.monitorStatus.textContent = hasScreen
+      ? 'Ready for a new question. Click Capture when the prompt is visible.'
+      : 'Ready for a new question. Type or dictate it below.';
 
     if (state.monitor && state.monitor.running) {
       state.monitor = await postJson('/api/monitor/stop', {});
@@ -2539,7 +2754,7 @@ function boot() {
     'questionBody', 'screenshotWrap', 'screenshotGallery', 'answerView', 'hintsSection', 'hintsView',
     'screenshotMeta', 'questionInputForm', 'questionInput', 'questionSubmitButton',
     'answerTab', 'questionTab', 'answerPanel', 'questionPanel',
-    'answerModeTabs', 'firstTryAnswerTab', 'robustAnswerTab',
+    'answerTurnTabs', 'questionTurnTabs', 'answerModeTabs', 'firstTryAnswerTab', 'robustAnswerTab',
     'monitorMap',
     'captureButton', 'listenButton',
     'overlayToggle', 'overlayPanel', 'answerButton'].forEach(function (id) {
@@ -2550,6 +2765,7 @@ function boot() {
     || !elements.stopMonitorButton || !elements.overlayToggle || !elements.overlayPanel || !elements.answerButton
     || !elements.captureButton || !elements.listenButton || !elements.monitorStatus || !elements.answerView || !elements.hintsView
     || !elements.answerModeTabs || !elements.firstTryAnswerTab || !elements.robustAnswerTab
+    || !elements.answerTurnTabs || !elements.questionTurnTabs
     || !elements.questionInputForm || !elements.questionInput || !elements.questionSubmitButton) {
     return;
   }
@@ -2850,6 +3066,7 @@ async function clearRunState(runDir: string): Promise<void> {
   state.lastUpdatedAt = new Date().toISOString();
   await writeFile(path.join(runDir, "question-state.json"), `${JSON.stringify(state, null, 2)}\n`, "utf8");
   await clearAnswerArtifacts(runDir);
+  await rm(path.join(runDir, "turns.json"), { force: true }).catch(() => undefined);
 }
 
 async function clearAnswerArtifacts(runDir: string): Promise<void> {
@@ -2863,6 +3080,162 @@ async function clearAnswerArtifacts(runDir: string): Promise<void> {
 
 async function writeQuestionState(runDir: string, state: QuestionState): Promise<void> {
   await writeFile(path.join(runDir, "question-state.json"), `${JSON.stringify(state, null, 2)}\n`, "utf8");
+}
+
+function markdownFromQuestionState(state: QuestionState | null): string {
+  if (!state?.question) {
+    return "";
+  }
+
+  const question = state.question;
+  const parts: string[] = [];
+  if (question.prompt) {
+    parts.push(`## Prompt\n\n${question.prompt}`);
+  }
+  if (question.inputOutput) {
+    parts.push(`## Input / Output\n\n${question.inputOutput}`);
+  }
+  if (question.examples.length) {
+    parts.push(`## Examples\n\n${question.examples.map((item) => `- ${item}`).join("\n")}`);
+  }
+  if (question.constraints.length) {
+    parts.push(`## Constraints\n\n${question.constraints.map((item) => `- ${item}`).join("\n")}`);
+  }
+  if (question.functionSignature) {
+    parts.push(`## Signature\n\n\`${question.functionSignature}\``);
+  }
+  if (question.notes.length) {
+    parts.push(`## Notes\n\n${question.notes.map((item) => `- ${item}`).join("\n")}`);
+  }
+  if (state.transcriptText) {
+    parts.push(`## Transcript\n\n${state.transcriptText}`);
+  }
+  return parts.join("\n\n");
+}
+
+function makeTurnId(index: number): string {
+  return index === 0 ? "original" : `followup-${index}`;
+}
+
+function makeTurnTitle(index: number): string {
+  return index === 0 ? "Original" : `Follow-up ${index}`;
+}
+
+function turnDetail(turn: RunTurnArtifact): RunTurnDetail {
+  return {
+    id: turn.id,
+    kind: turn.kind,
+    title: turn.title,
+    questionMarkdown: turn.questionMarkdown,
+    answerMarkdown: turn.answerMarkdown,
+    hintsMarkdown: turn.hintsMarkdown,
+    hasAnswer: Boolean(turn.answerMarkdown.trim()),
+    createdAt: turn.createdAt,
+    updatedAt: turn.updatedAt,
+  };
+}
+
+async function readTurnArtifacts(runDir: string): Promise<RunTurnArtifact[]> {
+  const turns = await readOptionalJson<RunTurnArtifact[]>(path.join(runDir, "turns.json"));
+  if (!Array.isArray(turns)) {
+    return [];
+  }
+
+  return turns
+    .filter((turn) => turn && typeof turn.id === "string")
+    .map((turn, index) => {
+      const now = new Date().toISOString();
+      return {
+        id: turn.id || makeTurnId(index),
+        kind: turn.kind === "followup" ? "followup" : "original",
+        title: turn.title || makeTurnTitle(index),
+        questionMarkdown: typeof turn.questionMarkdown === "string" ? turn.questionMarkdown : "",
+        answerMarkdown: typeof turn.answerMarkdown === "string" ? turn.answerMarkdown : "",
+        hintsMarkdown: typeof turn.hintsMarkdown === "string" ? turn.hintsMarkdown : "",
+        hasAnswer: Boolean(turn.answerMarkdown?.trim()),
+        createdAt: turn.createdAt || now,
+        updatedAt: turn.updatedAt || turn.createdAt || now,
+        state: turn.state ?? null,
+      };
+    });
+}
+
+async function writeTurnArtifacts(runDir: string, turns: RunTurnArtifact[]): Promise<void> {
+  await writeFile(path.join(runDir, "turns.json"), `${JSON.stringify(turns, null, 2)}\n`, "utf8");
+}
+
+async function ensureOriginalTurn(runDir: string, state: QuestionState | null): Promise<RunTurnArtifact[]> {
+  const turns = await readTurnArtifacts(runDir);
+  if (turns.length) {
+    return turns;
+  }
+
+  const answerMarkdown = (await readOptionalText(path.join(runDir, "answer.md")))?.trim() ?? "";
+  const hintsMarkdown = (await readOptionalText(path.join(runDir, "hints.md")))?.trim() ?? "";
+  if (!state && !answerMarkdown) {
+    return [];
+  }
+
+  const now = new Date().toISOString();
+  const original: RunTurnArtifact = {
+    id: "original",
+    kind: "original",
+    title: "Original",
+    questionMarkdown: markdownFromQuestionState(state),
+    answerMarkdown,
+    hintsMarkdown,
+    hasAnswer: Boolean(answerMarkdown),
+    createdAt: state?.lastUpdatedAt ?? now,
+    updatedAt: now,
+    state,
+  };
+  await writeTurnArtifacts(runDir, [original]);
+  return [original];
+}
+
+function followUpQuestionMarkdown(text: string): string {
+  const clean = text.trim();
+  return clean ? `## Follow-up\n\n${clean}` : "## Follow-up\n\nAdditional context captured.";
+}
+
+async function recordFollowUpTurn(
+  runDir: string,
+  previousState: QuestionState,
+  nextState: QuestionState,
+  questionText: string,
+): Promise<void> {
+  const turns = await ensureOriginalTurn(runDir, previousState);
+  if (!turns.length || !turns.some((turn) => turn.answerMarkdown.trim())) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const latest = turns.at(-1);
+  const nextQuestionMarkdown = followUpQuestionMarkdown(questionText);
+  if (latest && latest.kind === "followup" && !latest.answerMarkdown.trim()) {
+    latest.questionMarkdown = latest.questionMarkdown.trim()
+      ? `${latest.questionMarkdown.trim()}\n\n${nextQuestionMarkdown}`
+      : nextQuestionMarkdown;
+    latest.updatedAt = now;
+    latest.state = nextState;
+    await writeTurnArtifacts(runDir, turns);
+    return;
+  }
+
+  const index = turns.length;
+  turns.push({
+    id: makeTurnId(index),
+    kind: "followup",
+    title: makeTurnTitle(index),
+    questionMarkdown: nextQuestionMarkdown,
+    answerMarkdown: "",
+    hintsMarkdown: "",
+    hasAnswer: false,
+    createdAt: now,
+    updatedAt: now,
+    state: nextState,
+  });
+  await writeTurnArtifacts(runDir, turns);
 }
 
 async function writeTranscriptChunk(runDir: string, transcript: string, index: number): Promise<string> {
@@ -2909,6 +3282,7 @@ async function addTranscriptToRun(
   });
 
   await writeQuestionState(runPath, nextState);
+  await recordFollowUpTurn(runPath, normalizedState, nextState, cleanTranscript);
 
   const detail = await readRunDetail(outDir, runId);
   if (!detail) {
@@ -2959,7 +3333,12 @@ async function captureScreenshotForRun(
   });
 
   await writeQuestionState(runPath, nextState);
-  await clearAnswerArtifacts(runPath);
+  await recordFollowUpTurn(
+    runPath,
+    normalizedState,
+    nextState,
+    `Screenshot ${(normalizedState.screenshotPaths?.length ?? 0) + 1} captured. See the screenshot gallery for the follow-up prompt.`,
+  );
 
   const detail = await readRunDetail(outDir, runId);
   if (!detail) {
@@ -3029,12 +3408,58 @@ async function writeUiFallbackArtifacts(runDir: string, answer: string): Promise
   await writeFile(hintsPath, "## Hints\n\nNo separate hints were generated.\n", "utf8");
 }
 
+function buildTurnAnswerPrompt(basePrompt: string, turn: RunTurnArtifact): string {
+  if (turn.kind !== "followup") {
+    return basePrompt;
+  }
+
+  return [
+    basePrompt,
+    "",
+    "Current follow-up turn:",
+    turn.questionMarkdown.trim() || "Follow-up context was captured, but no separate text was available.",
+    "",
+    "Answer this follow-up directly while preserving the original question and answer as context. Do not rewrite the original answer unless the follow-up asks for a correction.",
+  ].join("\n");
+}
+
+async function saveAnswerForTurn(
+  runDir: string,
+  turns: RunTurnArtifact[],
+  turnIndex: number,
+  answer: string,
+  fallback = false,
+): Promise<void> {
+  const trimmed = answer.trim();
+  const hints = fallback
+    ? "## Hints\n\nNo separate hints were generated."
+    : extractMarkdownSection(trimmed, "Hints") ?? "## Hints\n\nNo separate hints were generated.";
+  const now = new Date().toISOString();
+  turns[turnIndex] = {
+    ...turns[turnIndex],
+    answerMarkdown: trimmed,
+    hintsMarkdown: hints.trim(),
+    hasAnswer: Boolean(trimmed),
+    updatedAt: now,
+  };
+  await writeTurnArtifacts(runDir, turns);
+  if (turns[turnIndex].kind !== "original") {
+    return;
+  }
+  if (fallback) {
+    await writeUiFallbackArtifacts(runDir, trimmed);
+  } else {
+    await writeUiAnswerArtifacts(runDir, trimmed);
+  }
+}
+
 async function answerRun(
   outDir: string,
   runId: string,
   language: string,
   handoff: AnswerHandoff,
   profilePath: string | null,
+  requestedTurnId: string | null = null,
 ): Promise<void> {
   const runPath = resolveRunPath(outDir, runId);
   if (!runPath) {
@@ -3045,23 +3470,37 @@ async function answerRun(
   if (!state) {
     throw new Error("Question state is missing.");
   }
-  const answerPrompt = buildAnswerPrompt(
-    state,
+  let turns = await ensureOriginalTurn(runPath, state);
+  if (!turns.length) {
+    throw new Error("Question state is missing.");
+  }
+
+  let turnIndex = requestedTurnId ? turns.findIndex((turn) => turn.id === requestedTurnId) : -1;
+  if (turnIndex < 0) {
+    const pendingIndex = turns.findIndex((turn) => !turn.answerMarkdown.trim());
+    turnIndex = pendingIndex >= 0 ? pendingIndex : turns.length - 1;
+  }
+
+  const targetTurn = turns[turnIndex];
+  const answerState = targetTurn.state ?? state;
+  const baseAnswerPrompt = buildAnswerPrompt(
+    answerState,
     language,
     await readCandidateProfile(profilePath),
-    state.screenshotPaths ?? [],
+    answerState.screenshotPaths ?? [],
   );
+  const answerPrompt = buildTurnAnswerPrompt(baseAnswerPrompt, targetTurn);
   const promptPath = path.join(runPath, "agent-prompt.md");
   const questionPath = path.join(runPath, "question.txt");
   await writeFile(promptPath, `${answerPrompt.trim()}\n`, "utf8");
-  await writeFile(questionPath, `${state.question.prompt?.trim() ?? ""}\n`, "utf8");
+  await writeFile(questionPath, `${targetTurn.questionMarkdown.trim() || answerState.question.prompt?.trim() || ""}\n`, "utf8");
 
   const repoRoot = path.resolve(packageRoot(), "..");
 
   if (handoff === "codex") {
-    const agentResult = await askCodexCliAgent(repoRoot, promptPath, runPath, state.screenshotPaths ?? []);
+    const agentResult = await askCodexCliAgent(repoRoot, promptPath, runPath, answerState.screenshotPaths ?? []);
     if (agentResult.answered) {
-      await writeUiAnswerArtifacts(runPath, agentResult.answer);
+      await saveAnswerForTurn(runPath, turns, turnIndex, agentResult.answer);
       return;
     }
 
@@ -3077,14 +3516,14 @@ async function answerRun(
       .filter(Boolean)
       .join("\n");
 
-    await writeUiFallbackArtifacts(runPath, fallback);
+    await saveAnswerForTurn(runPath, turns, turnIndex, fallback, true);
     return;
   }
 
   if (handoff === "openclaw") {
     const agentResult = await askOpenClawAgent(repoRoot, promptPath);
     if (agentResult.answered) {
-      await writeUiAnswerArtifacts(runPath, agentResult.answer);
+      await saveAnswerForTurn(runPath, turns, turnIndex, agentResult.answer);
       return;
     }
 
@@ -3100,7 +3539,7 @@ async function answerRun(
       .filter(Boolean)
       .join("\n");
 
-    await writeUiFallbackArtifacts(runPath, fallback);
+    await saveAnswerForTurn(runPath, turns, turnIndex, fallback, true);
     return;
   }
 
@@ -3111,7 +3550,7 @@ async function answerRun(
     "",
     `Prompt file: ${promptPath}`,
   ].join("\n");
-  await writeUiFallbackArtifacts(runPath, fallback);
+  await saveAnswerForTurn(runPath, turns, turnIndex, fallback, true);
 }
 
 function runTitle(state: QuestionState | null, runId: string): string {
@@ -3144,12 +3583,15 @@ async function summarizeRun(outDir: string, runId: string): Promise<RunSummary |
   const state = await readOptionalJson<QuestionState>(path.join(runPath, "question-state.json"));
   const answer = await readOptionalText(answerPath);
   const hints = await readOptionalText(hintsPath);
+  const turns = await readTurnArtifacts(runPath);
+  const hasTurnAnswer = turns.some((turn) => turn.answerMarkdown.trim());
   const runStat = await stat(runPath);
   const updatedAt = [
     runStat.mtime.toISOString(),
     state?.lastUpdatedAt ?? null,
     await optionalMtime(answerPath),
     await optionalMtime(hintsPath),
+    await optionalMtime(path.join(runPath, "turns.json")),
   ]
     .filter((item): item is string => Boolean(item))
     .sort()
@@ -3162,8 +3604,8 @@ async function summarizeRun(outDir: string, runId: string): Promise<RunSummary |
     kind: runKind(state),
     completenessScore: state?.completenessScore ?? 0,
     readyToAnswer: state?.readyToAnswer ?? false,
-    hasAnswer: Boolean(answer?.trim()),
-    hasHints: Boolean(hints?.trim()),
+    hasAnswer: Boolean(answer?.trim()) || hasTurnAnswer,
+    hasHints: Boolean(hints?.trim()) || turns.some((turn) => turn.hintsMarkdown.trim()),
   };
 }
 
@@ -3177,6 +3619,12 @@ async function readRunDetail(outDir: string, runId: string): Promise<RunDetail |
   const state = await readOptionalJson<QuestionState>(path.join(runPath, "question-state.json"));
   const answer = (await readOptionalText(path.join(runPath, "answer.md")))?.trim() ?? "";
   const hints = (await readOptionalText(path.join(runPath, "hints.md")))?.trim() ?? "";
+  const storedTurns = await readTurnArtifacts(runPath);
+  const turns = storedTurns.length
+    ? storedTurns
+    : answer
+      ? await ensureOriginalTurn(runPath, state)
+      : [];
   const screenshotFiles = await listScreenshotFiles(outDir, runId);
   const latestScreenshotFile = screenshotFiles.at(-1)?.path ?? null;
   const latestScreenshot = latestScreenshotFile
@@ -3191,6 +3639,7 @@ async function readRunDetail(outDir: string, runId: string): Promise<RunDetail |
     state,
     answerMarkdown: answer,
     hintsMarkdown: hints,
+    turns: turns.map(turnDetail),
     latestScreenshotUrl: latestScreenshot,
     screenshotUrls,
     screenshotCount: screenshotFiles.length,
@@ -3551,6 +4000,10 @@ async function handleRequest(
   const answerRunMatch = pathname.match(/^\/api\/runs\/([^/]+)\/answer$/);
   if (answerRunMatch?.[1] && req.method === "POST") {
     const runId = decodeURIComponent(answerRunMatch[1]);
+    const body = await readRequestJson(req);
+    const requestedTurnId = typeof body.turnId === "string" && /^[a-zA-Z0-9._-]+$/.test(body.turnId)
+      ? body.turnId
+      : null;
     const runPath = resolveRunPath(outDir, runId);
     if (!runPath) {
       sendJson(res, 400, { error: "Invalid run id." });
@@ -3569,6 +4022,7 @@ async function handleRequest(
       options.language ?? "python",
       options.handoff,
       options.profilePath ?? null,
+      requestedTurnId,
     );
     const detail = await readRunDetail(outDir, runId);
     if (!detail) {
