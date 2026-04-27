@@ -39,6 +39,9 @@ const FILING_STATUS_OPTIONS = [
   { value: "closed", label: "Closed" },
 ];
 
+const THEME_STORAGE_KEY = "jobApplicationAssistant.theme";
+const DEFAULT_THEME = "dark";
+
 const state = {
   snapshot: null,
   selectedQuestionKey: "",
@@ -74,6 +77,7 @@ const state = {
   ui: {
     consoleTab: "runner",
     actionGroup: null,
+    theme: DEFAULT_THEME,
   },
 };
 
@@ -96,8 +100,10 @@ const elements = {
   questionCapturePanel: document.getElementById("questionCapturePanel"),
   artifactPanel: document.getElementById("artifactPanel"),
   companyPanel: document.getElementById("companyPanel"),
+  themeToggle: document.getElementById("themeToggle"),
 };
 
+initializeTheme();
 bindEvents();
 void loadDashboard();
 window.setInterval(() => {
@@ -106,6 +112,7 @@ window.setInterval(() => {
 
 function bindEvents() {
   bindSectionMap();
+  bindThemeToggle();
 
   elements.searchInput?.addEventListener("input", (event) => {
     state.filters.search = event.target.value;
@@ -128,6 +135,56 @@ function bindEvents() {
   elements.refreshButton?.addEventListener("click", () => {
     void loadDashboard();
   });
+}
+
+function initializeTheme() {
+  state.ui.theme = getStoredTheme();
+  applyTheme(state.ui.theme);
+}
+
+function getStoredTheme() {
+  try {
+    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+    return storedTheme === "light" || storedTheme === "dark" ? storedTheme : DEFAULT_THEME;
+  } catch {
+    return DEFAULT_THEME;
+  }
+}
+
+function bindThemeToggle() {
+  elements.themeToggle?.addEventListener("click", () => {
+    const nextTheme = state.ui.theme === "dark" ? "light" : "dark";
+    state.ui.theme = nextTheme;
+
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    } catch {
+      // Theme switching should still work when storage is unavailable.
+    }
+
+    applyTheme(nextTheme);
+  });
+}
+
+function applyTheme(theme) {
+  const normalizedTheme = theme === "light" ? "light" : DEFAULT_THEME;
+  document.documentElement.dataset.theme = normalizedTheme;
+
+  const themeColor = document.querySelector('meta[name="theme-color"]');
+  themeColor?.setAttribute("content", normalizedTheme === "light" ? "#f5f7fb" : "#09111a");
+
+  if (!elements.themeToggle) {
+    return;
+  }
+
+  const isLight = normalizedTheme === "light";
+  elements.themeToggle.setAttribute("aria-pressed", String(isLight));
+  elements.themeToggle.setAttribute("aria-label", isLight ? "Switch to dark mode" : "Switch to light mode");
+
+  const label = elements.themeToggle.querySelector(".theme-toggle-text");
+  if (label) {
+    label.textContent = isLight ? "Light" : "Dark";
+  }
 }
 
 function bindSectionMap() {

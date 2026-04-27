@@ -14,6 +14,42 @@ function stateForPrompt(state: QuestionState): string {
   );
 }
 
+const PLACEHOLDER_PROMPTS = new Set([
+  "see the attached screenshot for the full prompt.",
+]);
+
+export function hasUsableQuestionContext(state: QuestionState): boolean {
+  const prompt = state.question.prompt?.trim() ?? "";
+  const normalizedPrompt = prompt.toLowerCase();
+  const hasPromptText = prompt.length >= 40 && !PLACEHOLDER_PROMPTS.has(normalizedPrompt);
+  return (
+    hasPromptText ||
+    Boolean(state.question.title?.trim()) ||
+    Boolean(state.question.functionSignature?.trim()) ||
+    Boolean(state.question.starterCode?.trim()) ||
+    Boolean(state.question.visibleCode?.trim()) ||
+    state.question.examples.length > 0 ||
+    state.question.constraints.length > 0 ||
+    (state.screenshotPaths?.length ?? 0) > 0
+  );
+}
+
+export function isMissingDetailsAnswer(answer: string): boolean {
+  return /^\s*(?:#+\s*)?Cannot answer yet\b/i.test(answer) || /\bMissing Details\b/i.test(answer);
+}
+
+export function buildAnswerRetryPrompt(answerPrompt: string): string {
+  return [
+    answerPrompt,
+    "",
+    "Important retry instruction:",
+    "Your previous response refused with missing-details text. Do not return 'Cannot answer yet' for this retry.",
+    "If the screenshots or captured text contain any recognizable coding problem, solve it from that evidence now.",
+    "Use reasonable assumptions for minor missing details and state those assumptions briefly.",
+    "Return the candidate-facing Markdown answer only.",
+  ].join("\n");
+}
+
 export function buildObservationPrompt(state: QuestionState): string {
   return [
     "You are helping read a coding interview question from a screenshot.",
@@ -87,7 +123,9 @@ export function buildAnswerPrompt(
     "Prepare a concise interviewer-ready solution for the captured coding prompt.",
     "",
     "Use only the captured question context below, plus the optional candidate context if provided.",
-    "If critical details are missing, start with 'Cannot answer yet' and list the missing details instead of guessing.",
+    "If screenshot files are attached, inspect them directly and use the OCR/captured text only as supporting context.",
+    "Do not ask for more information when an attached screenshot or OCR text contains a recognizable coding problem, visible examples, or starter code. Answer from the visible material and state any minor assumptions briefly.",
+    "Only start with 'Cannot answer yet' when there is no usable problem statement in either the attached screenshots or the captured text.",
     "For coding answers, solve in the requested language and match the captured function signature or starter code when present.",
     "Prioritize correctness, readability, and practical explanation for whiteboard/live-coding interviews.",
     "",

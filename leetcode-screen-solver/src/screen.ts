@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import type { DisplayInfo, ScreenRegion } from "./types.js";
+import type { DisplayInfo, ScreenRegion, WindowInfo } from "./types.js";
 
 type RawDisplayInfo = Omit<DisplayInfo, "relativePosition" | "shortLabel" | "label">;
+type RawWindowInfo = Omit<WindowInfo, "label">;
 
-function runProcess(command: string, args: string[], env: NodeJS.ProcessEnv = {}): Promise<string> {
+function runProcess(command: string, args: string[], env: NodeJS.ProcessEnv = {}, timeoutMs: number | null = null): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       env: { ...process.env, ...env },
@@ -15,6 +16,29 @@ function runProcess(command: string, args: string[], env: NodeJS.ProcessEnv = {}
 
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    const timeout = timeoutMs
+      ? setTimeout(() => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          child.kill();
+          reject(new Error(`${command} timed out after ${timeoutMs}ms`));
+        }, timeoutMs)
+      : null;
+
+    const finish = (callback: () => void): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      callback();
+    };
+
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");
     });
@@ -22,14 +46,18 @@ function runProcess(command: string, args: string[], env: NodeJS.ProcessEnv = {}
       stderr += chunk.toString("utf8");
     });
 
-    child.on("error", reject);
+    child.on("error", (error) => {
+      finish(() => reject(error));
+    });
     child.on("close", (code) => {
-      if (code === 0) {
-        resolve(stdout.trim());
-        return;
-      }
+      finish(() => {
+        if (code === 0) {
+          resolve(stdout.trim());
+          return;
+        }
 
-      reject(new Error(`${command} exited with code ${code}${stderr ? `: ${stderr.trim()}` : ""}`));
+        reject(new Error(`${command} exited with code ${code}${stderr ? `: ${stderr.trim()}` : ""}`));
+      });
     });
   });
 }
@@ -54,6 +82,36 @@ function cleanDisplayInfo(value: unknown): RawDisplayInfo | null {
     id: Math.round(id),
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : `Screen ${Math.round(id)}`,
     primary: raw.primary === true,
+    x: Math.round(x),
+    y: Math.round(y),
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+}
+
+function cleanWindowInfo(value: unknown): RawWindowInfo | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const raw = value as Record<string, unknown>;
+  const id = Number(raw.id);
+  const processId = Number(raw.processId);
+  const x = Number(raw.x);
+  const y = Number(raw.y);
+  const width = Number(raw.width);
+  const height = Number(raw.height);
+  const title = typeof raw.title === "string" ? raw.title.trim() : "";
+
+  if (![id, processId, x, y, width, height].every(Number.isFinite) || id <= 0 || width <= 0 || height <= 0 || !title) {
+    return null;
+  }
+
+  return {
+    id: Math.round(id),
+    processId: Math.round(processId),
+    processName: typeof raw.processName === "string" && raw.processName.trim() ? raw.processName.trim() : "Unknown app",
+    title,
     x: Math.round(x),
     y: Math.round(y),
     width: Math.round(width),
@@ -233,6 +291,161 @@ export async function listDisplays(): Promise<DisplayInfo[]> {
   return [];
 }
 
+function addWindowLabels(windows: RawWindowInfo[]): WindowInfo[] {
+  return windows.map((windowInfo) => ({
+    ...windowInfo,
+    label: `${windowInfo.processName} - ${windowInfo.title} | ${windowInfo.width}x${windowInfo.height} at ${windowInfo.x},${windowInfo.y}`,
+  }));
+}
+
+function usefulWindowScore(windowInfo: RawWindowInfo): number {
+  const processName = windowInfo.processName.toLowerCase();
+  const title = windowInfo.title.toLowerCase();
+  const noisyProcesses = new Set([
+    "applicationframehost",
+    "explorer",
+    "shellexperiencehost",
+    "systemsettings",
+    "tabtip",
+    "textinputhost",
+  ]);
+
+  if (noisyProcesses.has(processName)) {
+    return -100;
+  }
+
+  if (title === "program manager" || title === "settings" || title.includes("interview coder")) {
+    return -100;
+  }
+
+  if (processName.includes("discord")) {
+    return 100;
+  }
+
+  if (processName.includes("chrome") || processName.includes("msedge") || processName.includes("firefox")) {
+    return 80;
+  }
+
+  if (processName.includes("code")) {
+    return 60;
+  }
+
+  return 10;
+}
+
+async function listWindowsWindows(): Promise<WindowInfo[]> {
+  const script = `
+$ErrorActionPreference = 'Stop'
+Add-Type @"
+using System;
+using System.Text;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
+public static class WindowCaptureNative {
+  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct RECT {
+    public int Left;
+    public int Top;
+    public int Right;
+    public int Bottom;
+  }
+
+  [DllImport("user32.dll")]
+  public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+  [DllImport("user32.dll")]
+  public static extern bool IsWindowVisible(IntPtr hWnd);
+
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern int GetWindowTextLength(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+  [DllImport("user32.dll")]
+  public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+}
+"@
+
+$items = New-Object System.Collections.Generic.List[object]
+[WindowCaptureNative]::EnumWindows({
+  param([IntPtr]$hWnd, [IntPtr]$lParam)
+  if (-not [WindowCaptureNative]::IsWindowVisible($hWnd)) { return $true }
+
+  $length = [WindowCaptureNative]::GetWindowTextLength($hWnd)
+  if ($length -le 0) { return $true }
+
+  $builder = New-Object System.Text.StringBuilder ($length + 1)
+  [void][WindowCaptureNative]::GetWindowText($hWnd, $builder, $builder.Capacity)
+  $title = $builder.ToString().Trim()
+  if ([string]::IsNullOrWhiteSpace($title)) { return $true }
+
+  $rect = New-Object WindowCaptureNative+RECT
+  if (-not [WindowCaptureNative]::GetWindowRect($hWnd, [ref]$rect)) { return $true }
+  $width = $rect.Right - $rect.Left
+  $height = $rect.Bottom - $rect.Top
+  if ($width -lt 80 -or $height -lt 60) { return $true }
+
+  [uint32]$processId = 0
+  [void][WindowCaptureNative]::GetWindowThreadProcessId($hWnd, [ref]$processId)
+  $processName = 'Unknown app'
+  try {
+    $processName = (Get-Process -Id ([int]$processId) -ErrorAction Stop).ProcessName
+  } catch {}
+
+  $items.Add([pscustomobject]@{
+    id = $hWnd.ToInt64()
+    processId = [int]$processId
+    processName = $processName
+    title = $title
+    x = $rect.Left
+    y = $rect.Top
+    width = $width
+    height = $height
+  }) | Out-Null
+  return $true
+}, [IntPtr]::Zero) | Out-Null
+
+$items | ConvertTo-Json -Depth 4
+`;
+
+  const output = await runProcess("powershell.exe", [
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    script,
+  ]);
+
+  if (!output) {
+    return [];
+  }
+
+  const parsed = JSON.parse(output) as unknown;
+  const items = Array.isArray(parsed) ? parsed : [parsed];
+  const windows = items
+    .map(cleanWindowInfo)
+    .filter((item): item is RawWindowInfo => item !== null)
+    .filter((item) => usefulWindowScore(item) > -100)
+    .sort((left, right) => usefulWindowScore(right) - usefulWindowScore(left) || left.processName.localeCompare(right.processName) || left.title.localeCompare(right.title));
+  return addWindowLabels(windows);
+}
+
+export async function listWindows(): Promise<WindowInfo[]> {
+  if (process.platform === "win32") {
+    return listWindowsWindows();
+  }
+
+  return [];
+}
+
 function timestampSlug(date = new Date()): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return [
@@ -294,6 +507,200 @@ try {
   );
 }
 
+async function captureWindowsWindowPreview(outputPath: string, windowId: number): Promise<void> {
+  const script = `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Drawing
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class WindowScreenshotNative {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct RECT {
+    public int Left;
+    public int Top;
+    public int Right;
+    public int Bottom;
+  }
+
+  [DllImport("user32.dll")]
+  public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+  [DllImport("user32.dll")]
+  public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint nFlags);
+}
+"@
+
+$path = $env:LEETCODE_SOLVER_SCREENSHOT_PATH
+$handle = [IntPtr]::new([int64]$env:LEETCODE_SOLVER_WINDOW_ID)
+$rect = New-Object WindowScreenshotNative+RECT
+if (-not [WindowScreenshotNative]::GetWindowRect($handle, [ref]$rect)) {
+  throw 'Could not read selected window bounds.'
+}
+
+$width = $rect.Right - $rect.Left
+$height = $rect.Bottom - $rect.Top
+if ($width -le 0 -or $height -le 0) {
+  throw 'Selected window has invalid bounds.'
+}
+
+$bitmap = New-Object System.Drawing.Bitmap $width, $height
+$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+try {
+  $hdc = $graphics.GetHdc()
+  try {
+    $ok = [WindowScreenshotNative]::PrintWindow($handle, $hdc, 2)
+  } finally {
+    $graphics.ReleaseHdc($hdc)
+  }
+  if (-not $ok) {
+    throw 'Selected window did not render through Windows window capture.'
+  }
+  $bitmap.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+} finally {
+  $graphics.Dispose()
+  $bitmap.Dispose()
+}
+`;
+
+  await runProcess(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+    {
+      LEETCODE_SOLVER_SCREENSHOT_PATH: outputPath,
+      LEETCODE_SOLVER_WINDOW_ID: String(windowId),
+    },
+    3500,
+  );
+}
+
+async function captureWindowsForegroundWindow(outputPath: string, windowId: number): Promise<void> {
+  const script = `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class ForegroundWindowCaptureNative {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct RECT {
+    public int Left;
+    public int Top;
+    public int Right;
+    public int Bottom;
+  }
+
+  [DllImport("user32.dll")]
+  public static extern IntPtr GetForegroundWindow();
+
+  [DllImport("user32.dll")]
+  public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+  [DllImport("user32.dll")]
+  public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+  [DllImport("user32.dll")]
+  public static extern bool BringWindowToTop(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern IntPtr SetActiveWindow(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern IntPtr SetFocus(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+  [DllImport("kernel32.dll")]
+  public static extern uint GetCurrentThreadId();
+
+  [DllImport("user32.dll")]
+  public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+  [DllImport("user32.dll")]
+  public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+}
+"@
+
+$path = $env:LEETCODE_SOLVER_SCREENSHOT_PATH
+$handle = [IntPtr]::new([int64]$env:LEETCODE_SOLVER_WINDOW_ID)
+$previous = [ForegroundWindowCaptureNative]::GetForegroundWindow()
+
+[void][ForegroundWindowCaptureNative]::ShowWindow($handle, 9)
+$targetPid = [uint32]0
+$targetThread = [ForegroundWindowCaptureNative]::GetWindowThreadProcessId($handle, [ref]$targetPid)
+$currentThread = [ForegroundWindowCaptureNative]::GetCurrentThreadId()
+$attached = $false
+try {
+  if ($targetThread -ne 0 -and $targetThread -ne $currentThread) {
+    $attached = [ForegroundWindowCaptureNative]::AttachThreadInput($currentThread, $targetThread, $true)
+  }
+  [void][ForegroundWindowCaptureNative]::BringWindowToTop($handle)
+  [void][ForegroundWindowCaptureNative]::SetActiveWindow($handle)
+  [void][ForegroundWindowCaptureNative]::SetFocus($handle)
+  [void][ForegroundWindowCaptureNative]::SetForegroundWindow($handle)
+  $HWND_TOPMOST = [IntPtr]::new(-1)
+  $HWND_NOTOPMOST = [IntPtr]::new(-2)
+  $SWP_NOMOVE = 0x0002
+  $SWP_NOSIZE = 0x0001
+  $SWP_SHOWWINDOW = 0x0040
+  [void][ForegroundWindowCaptureNative]::SetWindowPos($handle, $HWND_TOPMOST, 0, 0, 0, 0, $SWP_NOMOVE -bor $SWP_NOSIZE -bor $SWP_SHOWWINDOW)
+  [void][ForegroundWindowCaptureNative]::SetWindowPos($handle, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP_NOMOVE -bor $SWP_NOSIZE -bor $SWP_SHOWWINDOW)
+} finally {
+  if ($attached) {
+    [void][ForegroundWindowCaptureNative]::AttachThreadInput($currentThread, $targetThread, $false)
+  }
+}
+Start-Sleep -Milliseconds 700
+
+$rect = New-Object ForegroundWindowCaptureNative+RECT
+if (-not [ForegroundWindowCaptureNative]::GetWindowRect($handle, [ref]$rect)) {
+  throw 'Could not read selected window bounds.'
+}
+
+$virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+$left = [Math]::Max($rect.Left, $virtual.Left)
+$top = [Math]::Max($rect.Top, $virtual.Top)
+$right = [Math]::Min($rect.Right, $virtual.Right)
+$bottom = [Math]::Min($rect.Bottom, $virtual.Bottom)
+$width = $right - $left
+$height = $bottom - $top
+if ($width -le 0 -or $height -le 0) {
+  throw 'Selected window is outside the visible screen.'
+}
+
+$bounds = New-Object System.Drawing.Rectangle $left, $top, $width, $height
+$bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+try {
+  $graphics.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bounds.Size)
+  $bitmap.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+} finally {
+  $graphics.Dispose()
+  $bitmap.Dispose()
+  if ($previous -ne [IntPtr]::Zero -and $previous -ne $handle) {
+    [void][ForegroundWindowCaptureNative]::SetForegroundWindow($previous)
+  }
+}
+`;
+
+  await runProcess(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+    {
+      LEETCODE_SOLVER_SCREENSHOT_PATH: outputPath,
+      LEETCODE_SOLVER_WINDOW_ID: String(windowId),
+    },
+    8000,
+  );
+}
+
 async function captureMac(outputPath: string, region: ScreenRegion | null): Promise<void> {
   const args = ["-x"];
   if (region) {
@@ -340,6 +747,30 @@ export async function captureScreen(runDir: string, region: ScreenRegion | null)
   }
 
   throw new Error(`Screen capture is not supported on ${process.platform}.`);
+}
+
+export async function captureWindow(runDir: string, windowId: number): Promise<string> {
+  if (process.platform !== "win32") {
+    throw new Error("App window capture is currently implemented for Windows.");
+  }
+
+  const screenDir = path.join(runDir, "screens");
+  await mkdir(screenDir, { recursive: true });
+  const outputPath = path.join(screenDir, `window-${timestampSlug()}.png`);
+  await captureWindowsForegroundWindow(outputPath, windowId);
+  return outputPath;
+}
+
+export async function captureWindowPreview(runDir: string, windowId: number): Promise<string> {
+  if (process.platform !== "win32") {
+    throw new Error("App window preview is currently implemented for Windows.");
+  }
+
+  const screenDir = path.join(runDir, "screens");
+  await mkdir(screenDir, { recursive: true });
+  const outputPath = path.join(screenDir, `window-preview-${timestampSlug()}.png`);
+  await captureWindowsWindowPreview(outputPath, windowId);
+  return outputPath;
 }
 
 export async function captureClipboardImage(runDir: string): Promise<string> {

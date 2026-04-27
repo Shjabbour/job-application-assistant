@@ -76,6 +76,8 @@ export function createEmptyState(): QuestionState {
     readyToAnswer: false,
     observations: 0,
     screenshotPaths: [],
+    sentScreenshotPaths: [],
+    excludedScreenshotPaths: [],
     transcriptPaths: [],
     transcriptText: null,
     lastUpdatedAt: null,
@@ -204,6 +206,8 @@ export function mergeObservation(
 ): QuestionState {
   const question = state.question;
   const screenshotPaths = state.screenshotPaths ?? [];
+  const sentScreenshotPaths = state.sentScreenshotPaths ?? [];
+  const excludedScreenshotPaths = state.excludedScreenshotPaths ?? [];
   const transcriptPaths = state.transcriptPaths ?? [];
 
   return {
@@ -232,6 +236,8 @@ export function mergeObservation(
       source.kind === "screenshot" && source.storeScreenshot !== false
         ? [...screenshotPaths, source.path]
         : screenshotPaths,
+    sentScreenshotPaths,
+    excludedScreenshotPaths,
     transcriptPaths: source.kind === "transcript" ? [...transcriptPaths, source.path] : transcriptPaths,
     transcriptText:
       source.kind === "transcript"

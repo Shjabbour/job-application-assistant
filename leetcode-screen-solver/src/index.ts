@@ -6,10 +6,10 @@ import { askCodexCliAgent, askOpenClawAgent } from "./agentHandoff.js";
 import { parseArgs, helpText } from "./args.js";
 import { loadEnvFiles } from "./env.js";
 import { startListenServer, type ListenStatus } from "./listenServer.js";
-import { shutdownOcrWorker } from "./localOcr.js";
+import { readImageText, shutdownOcrWorker } from "./localOcr.js";
 import { observeTranscriptLocally } from "./localTranscript.js";
 import { extractMarkdownSection } from "./markdown.js";
-import { buildAnswerPrompt } from "./prompts.js";
+import { buildAnswerPrompt, buildAnswerRetryPrompt, hasUsableQuestionContext, isMissingDetailsAnswer } from "./prompts.js";
 import { captureClipboardImage, captureScreen, listDisplays, makeRunId } from "./screen.js";
 import { observeScreenshotLocally } from "./screenshotObservation.js";
 import {
@@ -220,6 +220,52 @@ async function writeAnswerArtifacts(
   return { answerPath, hintsPath };
 }
 
+async function writePromptFile(promptPath: string, answerPrompt: string): Promise<void> {
+  await writeFile(promptPath, `${answerPrompt.trim()}\n`, "utf8");
+}
+
+function guardedAnswerMarkdown(answer: string, state: QuestionState): string | null {
+  const trimmed = answer.trim();
+  if (isMissingDetailsAnswer(trimmed) && hasUsableQuestionContext(state)) {
+    return null;
+  }
+  return trimmed;
+}
+
+function screenshotPathKey(runDir: string, item: string): string {
+  return (path.isAbsolute(item) ? path.resolve(item) : path.resolve(runDir, item)).toLowerCase();
+}
+
+function pendingScreenshotPathsForState(runDir: string, state: QuestionState): string[] {
+  const sent = new Set((state.sentScreenshotPaths ?? []).map((item) => screenshotPathKey(runDir, item)));
+  const excluded = new Set((state.excludedScreenshotPaths ?? []).map((item) => screenshotPathKey(runDir, item)));
+  return (state.screenshotPaths ?? []).filter((item) => {
+    const key = screenshotPathKey(runDir, item);
+    return !sent.has(key) && !excluded.has(key);
+  });
+}
+
+async function markScreenshotsSent(runDir: string, state: QuestionState, sentPaths: string[]): Promise<QuestionState> {
+  if (!sentPaths.length) {
+    return state;
+  }
+
+  const seen = new Set<string>();
+  const sentScreenshotPaths: string[] = [];
+  for (const item of [...(state.sentScreenshotPaths ?? []), ...sentPaths]) {
+    const key = screenshotPathKey(runDir, item);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    sentScreenshotPaths.push(item);
+  }
+
+  const nextState = { ...state, sentScreenshotPaths, lastUpdatedAt: new Date().toISOString() };
+  await writeState(runDir, nextState);
+  return nextState;
+}
+
 async function produceAgentHandoffAnswer(
   options: CliOptions,
   repoRoot: string,
@@ -232,24 +278,45 @@ async function produceAgentHandoffAnswer(
     return { answered: false, answerMarkdown: null, answerPrompt: "" };
   }
 
-  const answerPrompt = buildAnswerPrompt(state, options.language, candidateContext, state.screenshotPaths ?? []);
+  const pendingScreenshotPaths = pendingScreenshotPathsForState(runDir, state);
+  const answerPrompt = buildAnswerPrompt(state, options.language, candidateContext, pendingScreenshotPaths);
   const promptPath = path.join(runDir, "agent-prompt.md");
   const questionPath = path.join(runDir, "question.txt");
-  await writeFile(promptPath, `${answerPrompt.trim()}\n`, "utf8");
+  await writePromptFile(promptPath, answerPrompt);
   await writeFile(questionPath, `${state.question.prompt?.trim() ?? ""}\n`, "utf8");
 
   if (options.handoff === "codex") {
     console.log(`Asking Codex CLI to answer: ${promptPath}`);
-    const agentResult = await askCodexCliAgent(repoRoot, promptPath, runDir, state.screenshotPaths ?? []);
+    const agentResult = await askCodexCliAgent(repoRoot, promptPath, runDir, pendingScreenshotPaths);
     if (agentResult.answered) {
-      const { answerPath, hintsPath } = await writeAnswerArtifacts(runDir, agentResult.answer);
-      console.log(`Saved Codex answer: ${answerPath}`);
-      console.log(`Saved hints: ${hintsPath}`);
-      return {
-        answered: true,
-        answerMarkdown: agentResult.answer.trim(),
-        answerPrompt,
-      };
+      const guarded = guardedAnswerMarkdown(agentResult.answer, state);
+      if (guarded) {
+        await markScreenshotsSent(runDir, state, pendingScreenshotPaths);
+        const { answerPath, hintsPath } = await writeAnswerArtifacts(runDir, guarded);
+        console.log(`Saved Codex answer: ${answerPath}`);
+        console.log(`Saved hints: ${hintsPath}`);
+        return {
+          answered: true,
+          answerMarkdown: guarded,
+          answerPrompt,
+        };
+      }
+
+      const retryPrompt = buildAnswerRetryPrompt(answerPrompt);
+      await writePromptFile(promptPath, retryPrompt);
+      const retryResult = await askCodexCliAgent(repoRoot, promptPath, runDir, pendingScreenshotPaths);
+      const retryAnswer = retryResult.answered ? guardedAnswerMarkdown(retryResult.answer, state) : null;
+      if (retryAnswer) {
+        await markScreenshotsSent(runDir, state, pendingScreenshotPaths);
+        const { answerPath, hintsPath } = await writeAnswerArtifacts(runDir, retryAnswer);
+        console.log(`Saved Codex retry answer: ${answerPath}`);
+        console.log(`Saved hints: ${hintsPath}`);
+        return {
+          answered: true,
+          answerMarkdown: retryAnswer,
+          answerPrompt: retryPrompt,
+        };
+      }
     }
 
     const fallback = [
@@ -271,14 +338,34 @@ async function produceAgentHandoffAnswer(
     console.log(`Asking OpenClaw to answer: ${promptPath}`);
     const agentResult = await askOpenClawAgent(repoRoot, promptPath);
     if (agentResult.answered) {
-      const { answerPath, hintsPath } = await writeAnswerArtifacts(runDir, agentResult.answer);
-      console.log(`Saved OpenClaw answer: ${answerPath}`);
-      console.log(`Saved hints: ${hintsPath}`);
-      return {
-        answered: true,
-        answerMarkdown: agentResult.answer.trim(),
-        answerPrompt,
-      };
+      const guarded = guardedAnswerMarkdown(agentResult.answer, state);
+      if (guarded) {
+        await markScreenshotsSent(runDir, state, pendingScreenshotPaths);
+        const { answerPath, hintsPath } = await writeAnswerArtifacts(runDir, guarded);
+        console.log(`Saved OpenClaw answer: ${answerPath}`);
+        console.log(`Saved hints: ${hintsPath}`);
+        return {
+          answered: true,
+          answerMarkdown: guarded,
+          answerPrompt,
+        };
+      }
+
+      const retryPrompt = buildAnswerRetryPrompt(answerPrompt);
+      await writePromptFile(promptPath, retryPrompt);
+      const retryResult = await askOpenClawAgent(repoRoot, promptPath);
+      const retryAnswer = retryResult.answered ? guardedAnswerMarkdown(retryResult.answer, state) : null;
+      if (retryAnswer) {
+        await markScreenshotsSent(runDir, state, pendingScreenshotPaths);
+        const { answerPath, hintsPath } = await writeAnswerArtifacts(runDir, retryAnswer);
+        console.log(`Saved OpenClaw retry answer: ${answerPath}`);
+        console.log(`Saved hints: ${hintsPath}`);
+        return {
+          answered: true,
+          answerMarkdown: retryAnswer,
+          answerPrompt: retryPrompt,
+        };
+      }
     }
 
     const fallback = [
@@ -324,7 +411,15 @@ async function observeImage(
   imagePath: string,
   storeScreenshot = true,
 ): Promise<{ state: QuestionState; hasQuestion: boolean; userInstruction: string; resetForNewQuestion: boolean }> {
-  const observation = observeScreenshotLocally(state, imagePath);
+  let visibleText: string | null = null;
+  try {
+    const text = await readImageText(imagePath);
+    visibleText = text.trim() ? text : null;
+  } catch {
+    visibleText = null;
+  }
+
+  const observation = observeScreenshotLocally(state, imagePath, visibleText);
   const nextState = mergeObservation(state, observation, {
     kind: "screenshot",
     path: imagePath,

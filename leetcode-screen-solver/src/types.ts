@@ -27,6 +27,14 @@ export interface DisplayInfo extends ScreenRegion {
   label: string;
 }
 
+export interface WindowInfo extends ScreenRegion {
+  id: number;
+  processId: number;
+  processName: string;
+  title: string;
+  label: string;
+}
+
 export interface CliOptions {
   command: Command;
   intervalMs: number;
@@ -79,6 +87,8 @@ export interface QuestionState {
   readyToAnswer: boolean;
   observations: number;
   screenshotPaths: string[];
+  sentScreenshotPaths: string[];
+  excludedScreenshotPaths: string[];
   transcriptPaths: string[];
   transcriptText: string | null;
   lastUpdatedAt: string | null;
