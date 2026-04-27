@@ -4,6 +4,7 @@ import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { askCodexCliAgent, askOpenClawAgent } from "./agentHandoff.js";
 import { parseArgs, helpText } from "./args.js";
+import { assertUsableCapture } from "./captureValidation.js";
 import { loadEnvFiles } from "./env.js";
 import { startListenServer, type ListenStatus } from "./listenServer.js";
 import { readImageText, shutdownOcrWorker } from "./localOcr.js";
@@ -411,6 +412,8 @@ async function observeImage(
   imagePath: string,
   storeScreenshot = true,
 ): Promise<{ state: QuestionState; hasQuestion: boolean; userInstruction: string; resetForNewQuestion: boolean }> {
+  await assertUsableCapture(imagePath);
+
   let visibleText: string | null = null;
   try {
     const text = await readImageText(imagePath);

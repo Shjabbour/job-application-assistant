@@ -1,10 +1,11 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { askCodexCliAgent, askOpenClawAgent } from "./agentHandoff.js";
+import { assertUsableCapture } from "./captureValidation.js";
 import { extractMarkdownSection } from "./markdown.js";
 import { buildAnswerPrompt, buildAnswerRetryPrompt, hasUsableQuestionContext, isMissingDetailsAnswer } from "./prompts.js";
 import { captureScreen, captureWindow, captureWindowPreview, listDisplays, listWindows, makeRunId } from "./screen.js";
@@ -12,101 +13,21 @@ import { observeScreenshotLocally } from "./screenshotObservation.js";
 import { readImageText } from "./localOcr.js";
 import { observeTranscriptLocally } from "./localTranscript.js";
 import { createEmptyState, mergeObservation } from "./state.js";
-import type { AnswerHandoff, DisplayInfo, QuestionState, WindowInfo } from "./types.js";
+import type { DisplayInfo, QuestionState, WindowInfo } from "./types.js";
 import { JS } from "./ui/client.js";
 import { HTML } from "./ui/page.js";
 import { CSS } from "./ui/styles.js";
-
-interface UiServerOptions {
-  outDir: string;
-  port: number;
-  handoff: AnswerHandoff;
-  intervalMs?: number;
-  language?: string;
-  profilePath?: string | null;
-}
-
-export interface UiServerHandle {
-  url: string;
-  close: () => Promise<void>;
-}
-
-interface RunSummary {
-  id: string;
-  updatedAt: string | null;
-  title: string;
-  kind: string;
-  completenessScore: number;
-  readyToAnswer: boolean;
-  hasAnswer: boolean;
-  hasHints: boolean;
-}
-
-interface RunDetail extends RunSummary {
-  state: QuestionState | null;
-  answerMarkdown: string;
-  hintsMarkdown: string;
-  turns: RunTurnDetail[];
-  latestScreenshotUrl: string | null;
-  screenshotUrls: string[];
-  screenshots: ScreenshotDetail[];
-  screenshotCount: number;
-}
-
-interface ScreenshotDetail {
-  index: number;
-  url: string;
-  status: "pending" | "sent";
-  canDelete: boolean;
-}
-
-interface RunTurnDetail {
-  id: string;
-  kind: "original" | "followup";
-  title: string;
-  questionMarkdown: string;
-  answerMarkdown: string;
-  hintsMarkdown: string;
-  hasAnswer: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface RunTurnArtifact extends RunTurnDetail {
-  state: QuestionState | null;
-}
-
-interface MonitorStatus {
-  running: boolean;
-  screenId: number | null;
-  activeRunId: string | null;
-  pid: number | null;
-  startedAt: string | null;
-  stoppedAt: string | null;
-  exitCode: number | null;
-  lastError: string | null;
-  log: string[];
-}
-
-interface MonitorProcess {
-  child: ChildProcessWithoutNullStreams;
-  screenId: number;
-  activeRunId: string | null;
-  startedAt: string;
-  stoppedAt: string | null;
-  exitCode: number | null;
-  lastError: string | null;
-  log: string[];
-}
-
-interface ScreenshotRecord {
-  path: string;
-  updatedAt: number;
-  status: "pending" | "sent";
-}
-
-
-
+import type {
+  MonitorProcess,
+  MonitorStatus,
+  RunDetail,
+  RunSummary,
+  RunTurnArtifact,
+  ScreenshotRecord,
+  UiServerHandle,
+  UiServerOptions,
+} from "./ui/types.js";
+export type { UiServerHandle } from "./ui/types.js";
 
 
 
@@ -558,6 +479,7 @@ async function captureScreenshotForRun(
   const screenshotPath = windowCaptureId
     ? await captureWindow(runPath, windowCaptureId)
     : await captureScreen(runPath, region);
+  await assertUsableCapture(screenshotPath);
 
   const visibleText = await readImageTextSafely(screenshotPath);
   const observation = observeScreenshotLocally(normalizedState, screenshotPath, visibleText);
@@ -618,6 +540,7 @@ async function captureUploadedImageForRun(
 
   const screenshotPath = path.join(screenDir, `browser-${Date.now()}.png`);
   await writeFile(screenshotPath, pngBufferFromDataUrl(imageData));
+  await assertUsableCapture(screenshotPath);
 
   const visibleText = await readImageTextSafely(screenshotPath);
   const observation = observeScreenshotLocally(normalizedState, screenshotPath, visibleText);
