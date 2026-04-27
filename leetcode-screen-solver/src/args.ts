@@ -119,6 +119,24 @@ export function parseArgs(argv: string[]): CliOptions {
       continue;
     }
 
+    if (arg === "--once") {
+      command = "once";
+      options.command = command;
+      continue;
+    }
+
+    if (arg === "--listen") {
+      command = "listen";
+      options.command = command;
+      continue;
+    }
+
+    if (arg === "--clipboard") {
+      command = "clipboard";
+      options.command = command;
+      continue;
+    }
+
     if (arg === "--keep-all-screens") {
       options.keepAllScreens = true;
       continue;
@@ -192,7 +210,12 @@ export function parseArgs(argv: string[]): CliOptions {
       continue;
     }
 
-    if (!arg.startsWith("--") && options.command === "image") {
+    if (!arg.startsWith("--")) {
+      if (options.command === "listen" || options.command === "ui" || options.command === "clipboard") {
+        throw new Error(`Command mode ${options.command} does not accept positional arguments: ${arg}`);
+      }
+
+      options.command = "image";
       options.imagePaths.push(arg);
       continue;
     }
@@ -216,33 +239,32 @@ export function helpText(): string {
     "Interview Coder",
     "",
     "Usage:",
-    "  npm run watch -- [options]",
-    "  npm run once -- [options]",
-    "  npm run image -- <screenshot...> [options]",
-    "  npm run clipboard -- [options]",
-    "  npm run listen -- [options]",
-    "  npm run ui -- [options]",
+    "  npm run watch -- [options] [screenshot1 screenshot2 ...]",
     "",
     "Options:",
-    "  --language <name>        Solution language. Default: python",
-    "  --interval <seconds>     Watch interval. Default: 8",
-    "  --region x,y,w,h         Capture only a screen rectangle",
-    "  --screen <number>        Use a detected screen without prompting",
-    "  --ui                     Start the coding-solution UI with watch/once/image",
-    "  --port <number>          UI port. Default: 4378",
-    "  --auto                   Enable automatic answering when context is complete",
-    "  --manual                 Disable automatic answering (watch mode defaults to auto unless --ui is used)",
-    "  --max-screens <count>    Stop after this many observations",
-    "  --handoff <mode>         Answer handoff: codex, openclaw, or clipboard. Default: codex",
-    "  --profile <file>         Candidate context for tailored communication style and examples",
-    "  --out <dir>              Output directory. Default: runs",
-    "  --keep-all-screens       Keep screenshots even when no question is visible",
-    "  --help                   Show this help",
+    "  [screenshot files]        Add one or more local screenshots as input",
+    "  --language <name>         Solution language. Default: python",
+    "  --interval <seconds>      Watch interval. Default: 8",
+    "  --region x,y,w,h          Capture only a screen rectangle",
+    "  --screen <number>         Use a detected screen without prompting",
+    "  --ui                      Start the coding-solution UI (works with watch and input modes)",
+    "  --once                    Capture one screen and stop",
+    "  --listen                  Listen mode for spoken prompts",
+    "  --clipboard               Capture from clipboard instead of selecting a file",
+    "  --port <number>           UI/listen port. Default: 4378",
+    "  --auto                    Enable automatic answering when context is complete",
+    "  --manual                  Disable automatic answering (watch mode defaults to auto unless --ui is used)",
+    "  --max-screens <count>     Stop after this many observations",
+    "  --handoff <mode>          Answer handoff: codex, openclaw, or clipboard. Default: codex",
+    "  --profile <file>          Candidate context for tailored communication style and examples",
+    "  --out <dir>               Output directory. Default: runs",
+    "  --keep-all-screens        Keep screenshots even when no question is visible",
+    "  --help                    Show this help",
     "",
-    "Controls in watch mode:",
-    "  a or s                   Prepare an answer once context is complete",
-    "  r                        Reset captured question context",
-    "  q                        Quit",
+    "Controls (watch mode):",
+    "  a or s                    Prepare an answer once context is complete",
+    "  r                         Reset captured question context",
+    "  q                         Quit",
     "",
     "Listen mode:",
     "  Open the printed local URL, start browser speech recognition, then click Answer when ready.",
