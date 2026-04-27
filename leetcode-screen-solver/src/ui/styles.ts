@@ -15,6 +15,7 @@ export const CSS = String.raw`:root {
   --code-bg: #10161d;
   --code-panel: #151e27;
   --code-text: #edf4f8;
+  --code-comment: #7ee787;
   --soft-row: #172231;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
@@ -36,6 +37,7 @@ export const CSS = String.raw`:root {
   --code-bg: #10161d;
   --code-panel: #151e27;
   --code-text: #edf4f8;
+  --code-comment: #7ee787;
   --soft-row: #f7fafb;
 }
 
@@ -570,6 +572,11 @@ textarea {
   border-radius: 0;
 }
 
+.markdown pre .code-comment {
+  color: var(--code-comment);
+  font-weight: 700;
+}
+
 .empty {
   color: var(--muted);
 }
@@ -679,15 +686,15 @@ textarea {
   border-bottom: 1px solid var(--border);
   background: #101820;
   padding: 10px;
-  flex: 0 1 56%;
-  max-height: 56%;
+  flex: 0 0 auto;
+  max-height: none;
   min-height: 190px;
-  overflow: auto;
+  overflow: visible;
 }
 
 .screenshot-gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 
@@ -703,7 +710,8 @@ textarea {
 .screenshot-item img {
   display: block;
   width: 100%;
-  max-height: min(34vh, 360px);
+  height: auto;
+  max-height: none;
   max-width: 100%;
   object-fit: contain;
   margin: 0 auto;
@@ -1119,6 +1127,19 @@ textarea {
   color: #ffffff;
   font-size: 22px;
   font-weight: 800;
+}
+
+.source-preview em {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  color: #b7bac1;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 650;
+  line-height: 1.25;
+  text-align: center;
 }
 
 .source-name {

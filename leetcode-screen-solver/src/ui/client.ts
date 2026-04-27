@@ -21,6 +21,8 @@ export const JS = String.raw`var state = {
   newQuestionPending: false,
   answerRequestedRunId: null,
   answerRequestedTurnId: null,
+  answerReadyToSwitch: false,
+  openQuestionAfterCapture: false,
   recognition: null,
   listening: false,
   captureStream: null,
@@ -29,6 +31,7 @@ export const JS = String.raw`var state = {
   transcriptPost: Promise.resolve(),
   questionTextSubmitting: false,
   screenshotGallerySignature: '',
+  nativeShell: false,
 };
 
 var elements = {};
@@ -71,6 +74,21 @@ function windowOptionLabel(windowInfo) {
   return windowInfo && windowInfo.label
     ? windowInfo.label
     : (windowInfo ? windowInfo.processName + ' - ' + windowInfo.title : 'Unknown window');
+}
+
+function isRemoteChromeDesktopWindow(windowInfo) {
+  var title = String(windowInfo && windowInfo.title ? windowInfo.title : '').toLowerCase();
+  var processName = String(windowInfo && windowInfo.processName ? windowInfo.processName : '').toLowerCase();
+  return title.indexOf('chrome remote desktop') !== -1 ||
+    title.indexOf('remote chrome desktop') !== -1 ||
+    title.indexOf('remote desktop') !== -1 ||
+    processName.indexOf('remoting_desktop') !== -1 ||
+    processName.indexOf('remote_assistance_host') !== -1;
+}
+
+function preferredDefaultWindowId() {
+  var preferred = state.windows.find(isRemoteChromeDesktopWindow);
+  return preferred ? String(preferred.id) : '';
 }
 
 function storedTheme() {
@@ -257,6 +275,104 @@ function renderInline(value) {
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
 
+function findLineCommentIndex(line, markers) {
+  var quote = '';
+  var escaped = false;
+
+  for (var i = 0; i < line.length; i += 1) {
+    var char = line.charAt(i);
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (quote) {
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === quote) {
+        quote = '';
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === '\`') {
+      quote = char;
+      continue;
+    }
+
+    for (var markerIndex = 0; markerIndex < markers.length; markerIndex += 1) {
+      var marker = markers[markerIndex];
+      if (line.slice(i, i + marker.length) === marker) {
+        return i;
+      }
+    }
+  }
+
+  return -1;
+}
+
+function codeCommentMarkers(language) {
+  var normalized = String(language || '').toLowerCase();
+  if (normalized === 'python' || normalized === 'py' || normalized === 'ruby' || normalized === 'rb' || normalized === 'bash' || normalized === 'sh' || normalized === 'powershell' || normalized === 'ps1') {
+    return ['#'];
+  }
+  if (normalized === 'sql') {
+    return ['--'];
+  }
+  if (normalized === 'html' || normalized === 'xml') {
+    return ['<!--'];
+  }
+  return ['//'];
+}
+
+function renderHighlightedCodeLine(line, language, blockState) {
+  if (blockState.inBlockComment) {
+    var blockEnd = line.indexOf('*/');
+    if (blockEnd === -1) {
+      return '<span class="code-comment">' + escapeHtml(line) + '</span>';
+    }
+
+    blockState.inBlockComment = false;
+    return '<span class="code-comment">' + escapeHtml(line.slice(0, blockEnd + 2)) + '</span>' +
+      renderHighlightedCodeLine(line.slice(blockEnd + 2), language, blockState);
+  }
+
+  var blockStart = findLineCommentIndex(line, ['/*']);
+  var lineStart = findLineCommentIndex(line, codeCommentMarkers(language));
+  var commentStart = -1;
+  var isBlock = false;
+
+  if (blockStart !== -1 && (lineStart === -1 || blockStart < lineStart)) {
+    commentStart = blockStart;
+    isBlock = true;
+  } else {
+    commentStart = lineStart;
+  }
+
+  if (commentStart === -1) {
+    return escapeHtml(line);
+  }
+
+  if (!isBlock) {
+    return escapeHtml(line.slice(0, commentStart)) +
+      '<span class="code-comment">' + escapeHtml(line.slice(commentStart)) + '</span>';
+  }
+
+  var end = line.indexOf('*/', commentStart + 2);
+  if (end === -1) {
+    blockState.inBlockComment = true;
+    return escapeHtml(line.slice(0, commentStart)) +
+      '<span class="code-comment">' + escapeHtml(line.slice(commentStart)) + '</span>';
+  }
+
+  return escapeHtml(line.slice(0, commentStart)) +
+    '<span class="code-comment">' + escapeHtml(line.slice(commentStart, end + 2)) + '</span>' +
+    renderHighlightedCodeLine(line.slice(end + 2), language, blockState);
+}
+
 function flushList(buffer, ordered) {
   if (buffer.length === 0) {
     return '';
@@ -287,8 +403,12 @@ function slugifyHeading(value, used) {
 
 function renderCodeBlock(code, language) {
   var label = language || 'code';
+  var blockState = { inBlockComment: false };
+  var highlighted = code.map(function (line) {
+    return renderHighlightedCodeLine(line, language, blockState);
+  }).join('\n');
   return '<div class="code-shell"><div class="code-label">' + escapeHtml(label) + '</div><pre><code>' +
-    escapeHtml(code.join('\n')) + '</code></pre></div>';
+    highlighted + '</code></pre></div>';
 }
 
 function renderMarkdown(markdown, options) {
@@ -860,7 +980,8 @@ function renderWindows() {
   } catch (_error) {
     savedValue = '';
   }
-  var activeWindow = previousValue || savedValue;
+  var preferredValue = preferredDefaultWindowId();
+  var activeWindow = previousValue || preferredValue || savedValue;
   elements.windowSelect.innerHTML = '';
 
   var placeholder = document.createElement('option');
@@ -976,12 +1097,22 @@ function renderSourcePicker() {
 
     state.windows.forEach(function (windowInfo) {
       var active = elements.windowSelect && String(elements.windowSelect.value) === String(windowInfo.id);
+      var isRemoteDesktop = isRemoteChromeDesktopWindow(windowInfo);
       html += '<button class="source-card' + (active ? ' active' : '') + '" type="button" role="listitem" data-window-id="' +
         escapeHtml(windowInfo.id) + '" title="' + escapeHtml(windowOptionLabel(windowInfo)) + '">';
-      html += '<span class="source-preview"><span>' + escapeHtml(sourceInitial(windowInfo.processName)) + '</span><img data-preview-src="' +
-        escapeHtml('/api/windows/' + encodeURIComponent(windowInfo.id) + '/preview') + '" alt=""></span>';
+      html += '<span class="source-preview">';
+      html += '<span>' + escapeHtml(sourceInitial(windowInfo.processName)) + '</span>';
+      if (windowInfo.minimized && !isRemoteDesktop) {
+        html += '<em>Minimized - preview unavailable</em>';
+      } else {
+        html += '<img data-preview-src="' + escapeHtml('/api/windows/' + encodeURIComponent(windowInfo.id) + '/preview') + '" alt="">';
+        if (windowInfo.minimized && isRemoteDesktop) {
+          html += '<em>Restores briefly for preview</em>';
+        }
+      }
+      html += '</span>';
       html += '<span class="source-name">' + escapeHtml(shortWindowTitle(windowInfo)) + '</span>';
-      html += '<span class="source-subtitle">' + escapeHtml(windowInfo.processName) + '</span>';
+      html += '<span class="source-subtitle">' + escapeHtml(windowInfo.processName + (windowInfo.minimized ? ' - minimized' : '') + (isRemoteDesktop ? ' - app capture' : '')) + '</span>';
       html += '</button>';
     });
   } else if (state.activeSourceTab === 'screen') {
@@ -1141,9 +1272,10 @@ function renderRun(run) {
   state.currentRunReady = Boolean(run.readyToAnswer);
   state.currentRunHasAnswer = Boolean(run.hasAnswer);
   var nextAnswerMarkdown = String(selectedAnswerMarkdown(run) || '').trim();
-  var answerJustFinished = Boolean(nextAnswerMarkdown) &&
-    (!previousAnswerMarkdown || (state.answerRequestedRunId === run.id &&
-      (!state.answerRequestedTurnId || state.answerRequestedTurnId === state.activeTurnId)));
+  var answerJustFinished = state.answerReadyToSwitch &&
+    Boolean(nextAnswerMarkdown) &&
+    state.answerRequestedRunId === run.id &&
+    (!state.answerRequestedTurnId || state.answerRequestedTurnId === state.activeTurnId);
   elements.kindLabel.textContent = run.kind;
   elements.titleLabel.textContent = run.title;
   elements.readyLabel.textContent = run.readyToAnswer ? 'Ready' : 'Capturing';
@@ -1155,9 +1287,13 @@ function renderRun(run) {
   if (answerJustFinished) {
     state.answerRequestedRunId = null;
     state.answerRequestedTurnId = null;
+    state.answerReadyToSwitch = false;
     selectTab('answer');
     clearAnswerHash();
     scrollAnswerToTop();
+  } else if (state.openQuestionAfterCapture) {
+    state.openQuestionAfterCapture = false;
+    selectTab('question');
   }
 
   renderHintsContent(run);
@@ -1279,6 +1415,7 @@ function clearForNewCapture(screenId) {
   state.currentRunHasAnswer = false;
   state.answerRequestedRunId = null;
   state.answerRequestedTurnId = null;
+  state.answerReadyToSwitch = false;
   state.activeTurnId = null;
   elements.kindLabel.textContent = 'New question';
   elements.titleLabel.textContent = 'Ready for a new question';
@@ -1579,14 +1716,13 @@ async function requestAnswer() {
     return;
   }
 
-  selectTab('answer');
   clearAnswerHash();
-  scrollAnswerToTop();
   renderAnswerModeButtons(false);
   elements.answerView.innerHTML = '<p class="empty">Generating answer...</p>';
   state.answering = true;
   state.answerRequestedRunId = state.currentRunId;
   state.answerRequestedTurnId = state.activeTurnId;
+  state.answerReadyToSwitch = false;
   elements.answerButton.disabled = true;
   elements.answerButton.textContent = 'Generating answer...';
   elements.monitorStatus.textContent = 'Generating answer...';
@@ -1594,9 +1730,11 @@ async function requestAnswer() {
   try {
     var url = '/api/runs/' + encodeURIComponent(state.currentRunId) + '/answer';
     await postJson(url, { turnId: state.activeTurnId || undefined });
+    state.answerReadyToSwitch = true;
   } catch (error) {
     state.answerRequestedRunId = null;
     state.answerRequestedTurnId = null;
+    state.answerReadyToSwitch = false;
     elements.monitorStatus.textContent = error.message || String(error);
   } finally {
     state.answering = false;
@@ -1615,12 +1753,50 @@ async function requestAnswer() {
   }
 }
 
+async function postCaptureDetail(payload) {
+  var activeRunId = state.monitor && state.monitor.running && state.monitor.activeRunId ? state.monitor.activeRunId : null;
+  var targetRunId = activeRunId || (state.newQuestionPending ? null : state.currentRunId);
+  var targetUrl = targetRunId ? '/api/runs/' + encodeURIComponent(targetRunId) + '/capture' : '/api/capture';
+  var detail = await postJson(targetUrl, Object.assign({ runId: targetRunId || undefined }, payload));
+  if (detail && detail.id) {
+    state.currentRunId = detail.id;
+    state.newQuestionPending = false;
+    state.activeTurnId = latestTurnId(detail);
+    state.activeAnswerMode = 'firstTry';
+  }
+  renderRun(detail);
+  if (detail && detail.id) {
+    setScreenshotGallery(detail);
+  }
+  return detail;
+}
+
+async function postCapturedImageDetail(imageData) {
+  var activeRunId = state.monitor && state.monitor.running && state.monitor.activeRunId ? state.monitor.activeRunId : null;
+  var targetRunId = activeRunId || (state.newQuestionPending ? null : state.currentRunId);
+  var targetUrl = targetRunId ? '/api/runs/' + encodeURIComponent(targetRunId) + '/capture-image' : '/api/capture-image';
+  var detail = await postJson(targetUrl, { runId: targetRunId || undefined, imageData: imageData });
+  if (detail && detail.id) {
+    state.currentRunId = detail.id;
+    state.newQuestionPending = false;
+    state.activeTurnId = latestTurnId(detail);
+    state.activeAnswerMode = 'firstTry';
+  }
+  renderRun(detail);
+  if (detail && detail.id) {
+    setScreenshotGallery(detail);
+  }
+  return detail;
+}
+
 async function requestCapture() {
   if (!elements.captureButton || state.capturing) {
     return;
   }
 
-  if (!state.captureStream || !state.captureVideo) {
+  var selectedWindowId = elements.windowSelect ? Number(elements.windowSelect.value) : NaN;
+  var hasSelectedWindow = state.nativeShell && Number.isFinite(selectedWindowId) && selectedWindowId > 0;
+  if (!hasSelectedWindow && (!state.captureStream || !state.captureVideo)) {
     elements.monitorStatus.textContent = 'Choose a source first.';
     await chooseBrowserSource();
     if (!state.captureStream || !state.captureVideo) {
@@ -1636,29 +1812,21 @@ async function requestCapture() {
   elements.captureButton.textContent = 'Capturing...';
 
   try {
-    var imageData = await captureBrowserSourceFrame();
-    if (!imageData) {
-      elements.monitorStatus.textContent = 'Choose a source first.';
-      return;
+    state.openQuestionAfterCapture = true;
+    if (hasSelectedWindow) {
+      await postCaptureDetail({ windowId: selectedWindowId });
+    } else {
+      var imageData = await captureBrowserSourceFrame();
+      if (!imageData) {
+        elements.monitorStatus.textContent = 'Choose a source first.';
+        return;
+      }
+      await postCapturedImageDetail(imageData);
     }
-
-    var activeRunId = state.monitor && state.monitor.running && state.monitor.activeRunId ? state.monitor.activeRunId : null;
-    var targetRunId = activeRunId || (state.newQuestionPending ? null : state.currentRunId);
-    var targetUrl = targetRunId ? '/api/runs/' + encodeURIComponent(targetRunId) + '/capture-image' : '/api/capture-image';
-    var payload = { runId: targetRunId || undefined, imageData: imageData };
-    var detail = await postJson(targetUrl, payload);
-    if (detail && detail.id) {
-      state.currentRunId = detail.id;
-      state.newQuestionPending = false;
-      state.activeTurnId = latestTurnId(detail);
-      state.activeAnswerMode = 'firstTry';
-    }
-    renderRun(detail);
-    if (detail && detail.id) {
-      setScreenshotGallery(detail);
-    }
+    selectTab('question');
     elements.monitorStatus.textContent = 'Captured screenshot.';
   } catch (error) {
+    state.openQuestionAfterCapture = false;
     elements.monitorStatus.textContent = error.message || String(error);
   } finally {
     state.capturing = false;
@@ -1820,6 +1988,17 @@ function toggleOverlay(forceOpen) {
   elements.overlayToggle.setAttribute('aria-expanded', String(nextOpen));
 }
 
+async function openSourcePicker() {
+  try {
+    await loadMonitor();
+  } catch (_error) {
+  }
+  state.activeSourceTab = state.windows.length ? 'applications' : 'screen';
+  state.sourcePickerSignature = '';
+  renderSourcePicker();
+  toggleOverlay(true);
+}
+
 function stopBrowserSource() {
   if (state.captureStream) {
     state.captureStream.getTracks().forEach(function (track) {
@@ -1904,7 +2083,49 @@ async function captureBrowserSourceFrame() {
     throw new Error('Could not create capture canvas.');
   }
   context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  assertCanvasHasVisibleContent(context, canvas.width, canvas.height);
   return canvas.toDataURL('image/png');
+}
+
+function assertCanvasHasVisibleContent(context, width, height) {
+  var sampleWidth = Math.min(48, width);
+  var sampleHeight = Math.min(48, height);
+  var imageData;
+  try {
+    imageData = context.getImageData(0, 0, width, height).data;
+  } catch (_error) {
+    return;
+  }
+
+  var stepX = Math.max(1, Math.floor(width / sampleWidth));
+  var stepY = Math.max(1, Math.floor(height / sampleHeight));
+  var minLum = 255;
+  var maxLum = 0;
+  var sum = 0;
+  var count = 0;
+
+  for (var y = 0; y < height; y += stepY) {
+    for (var x = 0; x < width; x += stepX) {
+      var index = (y * width + x) * 4;
+      var alpha = imageData[index + 3];
+      var lum = alpha === 0
+        ? 255
+        : (imageData[index] * 0.2126) + (imageData[index + 1] * 0.7152) + (imageData[index + 2] * 0.0722);
+      minLum = Math.min(minLum, lum);
+      maxLum = Math.max(maxLum, lum);
+      sum += lum;
+      count += 1;
+    }
+  }
+
+  if (!count || maxLum - minLum < 12) {
+    throw new Error('Capture looks blank. Re-select the LeetCode/interview window and try Capture again.');
+  }
+
+  var average = sum / count;
+  if ((average < 4 || average > 251) && maxLum - minLum < 24) {
+    throw new Error('Capture looks blank. Re-select the LeetCode/interview window and try Capture again.');
+  }
 }
 
 function boot() {
@@ -1931,6 +2152,7 @@ function boot() {
   }
 
   applyTheme(storedTheme());
+  state.nativeShell = new URLSearchParams(window.location.search).get('native') === '1';
   if (elements.themeToggle) {
     elements.themeToggle.addEventListener('click', toggleTheme);
   }
@@ -1995,7 +2217,13 @@ function boot() {
   }
   elements.firstTryAnswerTab.addEventListener('click', function () { selectAnswerMode('firstTry'); });
   elements.robustAnswerTab.addEventListener('click', function () { selectAnswerMode('robust'); });
-  elements.overlayToggle.addEventListener('click', chooseBrowserSource);
+  elements.overlayToggle.addEventListener('click', function () {
+    if (state.nativeShell) {
+      openSourcePicker();
+    } else {
+      chooseBrowserSource();
+    }
+  });
   document.addEventListener('keydown', function (event) {
     if (event.ctrlKey || event.metaKey || event.altKey) {
       return;

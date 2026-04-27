@@ -111,14 +111,14 @@ export async function askCodexCliAgent(
     ? [
         promptText,
         "",
-        "Return only the candidate-facing answer. Keep it scannable, but include enough spoken walkthrough detail for both the first-try and robust paths. Include a complete first-try code solution when valid, plus useful code comments the candidate can say while typing.",
+        "Return only the candidate-facing answer. Keep it scannable, but include enough spoken walkthrough detail for both the first-try and robust paths. Include a complete first-try code solution when valid. Use more comments than normal live code so the candidate can look like they are thinking aloud while typing; comments should explain intent, invariants, edge cases, and key data-structure choices.",
       ].join("\n")
     : [
         "Answer the interview assessment prompt in this local file.",
         "",
         promptFilePath,
         "",
-        "Return only the candidate-facing answer. Keep it scannable, but include enough spoken walkthrough detail for both the first-try and robust paths. Include a complete first-try code solution when valid, plus useful code comments the candidate can say while typing.",
+        "Return only the candidate-facing answer. Keep it scannable, but include enough spoken walkthrough detail for both the first-try and robust paths. Include a complete first-try code solution when valid. Use more comments than normal live code so the candidate can look like they are thinking aloud while typing; comments should explain intent, invariants, edge cases, and key data-structure choices.",
       ].join("\n");
 
   return new Promise((resolve) => {
@@ -209,14 +209,14 @@ export async function askOpenClawAgent(repoRoot: string, promptFilePath: string)
     ? [
         promptText,
         "",
-        "Return only the candidate-facing answer. Keep it scannable, but include enough spoken walkthrough detail for both the first-try and robust paths. Include a complete first-try code solution when valid, plus useful code comments the candidate can say while typing.",
+        "Return only the candidate-facing answer. Keep it scannable, but include enough spoken walkthrough detail for both the first-try and robust paths. Include a complete first-try code solution when valid. Use more comments than normal live code so the candidate can look like they are thinking aloud while typing; comments should explain intent, invariants, edge cases, and key data-structure choices.",
       ].join("\n")
     : [
         "Answer the interview assessment prompt in this local file.",
         "",
         promptFilePath,
         "",
-        "Return only the candidate-facing answer. Keep it scannable, but include enough spoken walkthrough detail for both the first-try and robust paths. Include a complete first-try code solution when valid, plus useful code comments the candidate can say while typing.",
+        "Return only the candidate-facing answer. Keep it scannable, but include enough spoken walkthrough detail for both the first-try and robust paths. Include a complete first-try code solution when valid. Use more comments than normal live code so the candidate can look like they are thinking aloud while typing; comments should explain intent, invariants, edge cases, and key data-structure choices.",
       ].join("\n");
 
   return new Promise((resolve) => {

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
+import { assertUsableCapture } from "./captureValidation.js";
 import type { DisplayInfo, ScreenRegion, WindowInfo } from "./types.js";
 
 type RawDisplayInfo = Omit<DisplayInfo, "relativePosition" | "shortLabel" | "label">;
@@ -112,6 +113,7 @@ function cleanWindowInfo(value: unknown): RawWindowInfo | null {
     processId: Math.round(processId),
     processName: typeof raw.processName === "string" && raw.processName.trim() ? raw.processName.trim() : "Unknown app",
     title,
+    minimized: raw.minimized === true,
     x: Math.round(x),
     y: Math.round(y),
     width: Math.round(width),
@@ -298,6 +300,18 @@ function addWindowLabels(windows: RawWindowInfo[]): WindowInfo[] {
   }));
 }
 
+export function isRemoteDesktopWindow(windowInfo: Pick<RawWindowInfo, "processName" | "title">): boolean {
+  const processName = windowInfo.processName.toLowerCase();
+  const title = windowInfo.title.toLowerCase();
+  return (
+    title.includes("chrome remote desktop") ||
+    title.includes("remote chrome desktop") ||
+    title.includes("remote desktop") ||
+    processName.includes("remoting_desktop") ||
+    processName.includes("remote_assistance_host")
+  );
+}
+
 function usefulWindowScore(windowInfo: RawWindowInfo): number {
   const processName = windowInfo.processName.toLowerCase();
   const title = windowInfo.title.toLowerCase();
@@ -316,6 +330,10 @@ function usefulWindowScore(windowInfo: RawWindowInfo): number {
 
   if (title === "program manager" || title === "settings" || title.includes("interview coder")) {
     return -100;
+  }
+
+  if (isRemoteDesktopWindow(windowInfo)) {
+    return 140;
   }
 
   if (processName.includes("discord")) {
@@ -353,11 +371,30 @@ public static class WindowCaptureNative {
     public int Bottom;
   }
 
+  [StructLayout(LayoutKind.Sequential)]
+  public struct POINT {
+    public int X;
+    public int Y;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct WINDOWPLACEMENT {
+    public int length;
+    public int flags;
+    public int showCmd;
+    public POINT ptMinPosition;
+    public POINT ptMaxPosition;
+    public RECT rcNormalPosition;
+  }
+
   [DllImport("user32.dll")]
   public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
 
   [DllImport("user32.dll")]
   public static extern bool IsWindowVisible(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern bool IsIconic(IntPtr hWnd);
 
   [DllImport("user32.dll", SetLastError=true)]
   public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
@@ -367,6 +404,9 @@ public static class WindowCaptureNative {
 
   [DllImport("user32.dll")]
   public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+  [DllImport("user32.dll")]
+  public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
 
   [DllImport("user32.dll")]
   public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
@@ -388,6 +428,14 @@ $items = New-Object System.Collections.Generic.List[object]
 
   $rect = New-Object WindowCaptureNative+RECT
   if (-not [WindowCaptureNative]::GetWindowRect($hWnd, [ref]$rect)) { return $true }
+  $isMinimized = [WindowCaptureNative]::IsIconic($hWnd)
+  if ($isMinimized) {
+    $placement = New-Object WindowCaptureNative+WINDOWPLACEMENT
+    $placement.length = [System.Runtime.InteropServices.Marshal]::SizeOf([type][WindowCaptureNative+WINDOWPLACEMENT])
+    if ([WindowCaptureNative]::GetWindowPlacement($hWnd, [ref]$placement)) {
+      $rect = $placement.rcNormalPosition
+    }
+  }
   $width = $rect.Right - $rect.Left
   $height = $rect.Bottom - $rect.Top
   if ($width -lt 80 -or $height -lt 60) { return $true }
@@ -404,6 +452,7 @@ $items = New-Object System.Collections.Generic.List[object]
     processId = [int]$processId
     processName = $processName
     title = $title
+    minimized = [bool]$isMinimized
     x = $rect.Left
     y = $rect.Top
     width = $width
@@ -411,6 +460,44 @@ $items = New-Object System.Collections.Generic.List[object]
   }) | Out-Null
   return $true
 }, [IntPtr]::Zero) | Out-Null
+
+Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and -not [string]::IsNullOrWhiteSpace($_.MainWindowTitle) } | ForEach-Object {
+  $handle = $_.MainWindowHandle
+  $alreadyListed = $false
+  foreach ($item in $items) {
+    if ($item.id -eq $handle.ToInt64()) {
+      $alreadyListed = $true
+      break
+    }
+  }
+  if ($alreadyListed) { return }
+
+  $rect = New-Object WindowCaptureNative+RECT
+  if (-not [WindowCaptureNative]::GetWindowRect($handle, [ref]$rect)) { return }
+  $isMinimized = [WindowCaptureNative]::IsIconic($handle)
+  if ($isMinimized) {
+    $placement = New-Object WindowCaptureNative+WINDOWPLACEMENT
+    $placement.length = [System.Runtime.InteropServices.Marshal]::SizeOf([type][WindowCaptureNative+WINDOWPLACEMENT])
+    if ([WindowCaptureNative]::GetWindowPlacement($handle, [ref]$placement)) {
+      $rect = $placement.rcNormalPosition
+    }
+  }
+  $width = $rect.Right - $rect.Left
+  $height = $rect.Bottom - $rect.Top
+  if ($width -lt 80 -or $height -lt 60) { return }
+
+  $items.Add([pscustomobject]@{
+    id = $handle.ToInt64()
+    processId = [int]$_.Id
+    processName = $_.ProcessName
+    title = $_.MainWindowTitle.Trim()
+    minimized = [bool]$isMinimized
+    x = $rect.Left
+    y = $rect.Top
+    width = $width
+    height = $height
+  }) | Out-Null
+}
 
 $items | ConvertTo-Json -Depth 4
 `;
@@ -603,6 +690,9 @@ public static class ForegroundWindowCaptureNative {
   public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
   [DllImport("user32.dll")]
+  public static extern bool IsIconic(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
   public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
   [DllImport("user32.dll")]
@@ -631,8 +721,13 @@ public static class ForegroundWindowCaptureNative {
 $path = $env:LEETCODE_SOLVER_SCREENSHOT_PATH
 $handle = [IntPtr]::new([int64]$env:LEETCODE_SOLVER_WINDOW_ID)
 $previous = [ForegroundWindowCaptureNative]::GetForegroundWindow()
+$wasMinimized = [ForegroundWindowCaptureNative]::IsIconic($handle)
+$originalRect = New-Object ForegroundWindowCaptureNative+RECT
 
 [void][ForegroundWindowCaptureNative]::ShowWindow($handle, 9)
+Start-Sleep -Milliseconds 150
+[void][ForegroundWindowCaptureNative]::GetWindowRect($handle, [ref]$originalRect)
+[void][ForegroundWindowCaptureNative]::ShowWindow($handle, 3)
 $targetPid = [uint32]0
 $targetThread = [ForegroundWindowCaptureNative]::GetWindowThreadProcessId($handle, [ref]$targetPid)
 $currentThread = [ForegroundWindowCaptureNative]::GetCurrentThreadId()
@@ -652,30 +747,17 @@ try {
   $SWP_SHOWWINDOW = 0x0040
   [void][ForegroundWindowCaptureNative]::SetWindowPos($handle, $HWND_TOPMOST, 0, 0, 0, 0, $SWP_NOMOVE -bor $SWP_NOSIZE -bor $SWP_SHOWWINDOW)
   [void][ForegroundWindowCaptureNative]::SetWindowPos($handle, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP_NOMOVE -bor $SWP_NOSIZE -bor $SWP_SHOWWINDOW)
+  [void][ForegroundWindowCaptureNative]::SetWindowPos($handle, $HWND_TOPMOST, 0, 0, 0, 0, $SWP_NOMOVE -bor $SWP_NOSIZE -bor $SWP_SHOWWINDOW)
+  [void][ForegroundWindowCaptureNative]::SetWindowPos($handle, $HWND_NOTOPMOST, 0, 0, 0, 0, $SWP_NOMOVE -bor $SWP_NOSIZE -bor $SWP_SHOWWINDOW)
 } finally {
   if ($attached) {
     [void][ForegroundWindowCaptureNative]::AttachThreadInput($currentThread, $targetThread, $false)
   }
 }
-Start-Sleep -Milliseconds 700
-
-$rect = New-Object ForegroundWindowCaptureNative+RECT
-if (-not [ForegroundWindowCaptureNative]::GetWindowRect($handle, [ref]$rect)) {
-  throw 'Could not read selected window bounds.'
-}
+Start-Sleep -Milliseconds 1500
 
 $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
-$left = [Math]::Max($rect.Left, $virtual.Left)
-$top = [Math]::Max($rect.Top, $virtual.Top)
-$right = [Math]::Min($rect.Right, $virtual.Right)
-$bottom = [Math]::Min($rect.Bottom, $virtual.Bottom)
-$width = $right - $left
-$height = $bottom - $top
-if ($width -le 0 -or $height -le 0) {
-  throw 'Selected window is outside the visible screen.'
-}
-
-$bounds = New-Object System.Drawing.Rectangle $left, $top, $width, $height
+$bounds = New-Object System.Drawing.Rectangle $virtual.Left, $virtual.Top, $virtual.Width, $virtual.Height
 $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
 $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
 try {
@@ -684,6 +766,19 @@ try {
 } finally {
   $graphics.Dispose()
   $bitmap.Dispose()
+  if ($wasMinimized) {
+    [void][ForegroundWindowCaptureNative]::ShowWindow($handle, 6)
+  } elseif (($originalRect.Right - $originalRect.Left) -gt 0 -and ($originalRect.Bottom - $originalRect.Top) -gt 0) {
+    [void][ForegroundWindowCaptureNative]::SetWindowPos(
+      $handle,
+      [IntPtr]::new(-2),
+      $originalRect.Left,
+      $originalRect.Top,
+      $originalRect.Right - $originalRect.Left,
+      $originalRect.Bottom - $originalRect.Top,
+      0x0040
+    )
+  }
   if ($previous -ne [IntPtr]::Zero -and $previous -ne $handle) {
     [void][ForegroundWindowCaptureNative]::SetForegroundWindow($previous)
   }
@@ -757,11 +852,16 @@ export async function captureWindow(runDir: string, windowId: number): Promise<s
   const screenDir = path.join(runDir, "screens");
   await mkdir(screenDir, { recursive: true });
   const outputPath = path.join(screenDir, `window-${timestampSlug()}.png`);
-  await captureWindowsForegroundWindow(outputPath, windowId);
+  try {
+    await captureWindowsWindowPreview(outputPath, windowId);
+    await assertUsableCapture(outputPath);
+  } catch {
+    await captureWindowsForegroundWindow(outputPath, windowId);
+  }
   return outputPath;
 }
 
-export async function captureWindowPreview(runDir: string, windowId: number): Promise<string> {
+export async function captureWindowPreview(runDir: string, windowId: number, forceForeground = false): Promise<string> {
   if (process.platform !== "win32") {
     throw new Error("App window preview is currently implemented for Windows.");
   }
@@ -769,7 +869,11 @@ export async function captureWindowPreview(runDir: string, windowId: number): Pr
   const screenDir = path.join(runDir, "screens");
   await mkdir(screenDir, { recursive: true });
   const outputPath = path.join(screenDir, `window-preview-${timestampSlug()}.png`);
-  await captureWindowsWindowPreview(outputPath, windowId);
+  if (forceForeground) {
+    await captureWindowsForegroundWindow(outputPath, windowId);
+  } else {
+    await captureWindowsWindowPreview(outputPath, windowId);
+  }
   return outputPath;
 }
 

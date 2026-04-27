@@ -8,12 +8,12 @@ import { askCodexCliAgent, askOpenClawAgent } from "./agentHandoff.js";
 import { assertUsableCapture } from "./captureValidation.js";
 import { extractMarkdownSection } from "./markdown.js";
 import { buildAnswerPrompt, buildAnswerRetryPrompt, hasUsableQuestionContext, isMissingDetailsAnswer } from "./prompts.js";
-import { captureScreen, captureWindow, captureWindowPreview, listDisplays, listWindows, makeRunId } from "./screen.js";
+import { captureScreen, captureWindow, captureWindowPreview, isRemoteDesktopWindow, listDisplays, listWindows, makeRunId } from "./screen.js";
 import { observeScreenshotLocally } from "./screenshotObservation.js";
 import { readImageText } from "./localOcr.js";
 import { observeTranscriptLocally } from "./localTranscript.js";
 import { createEmptyState, mergeObservation } from "./state.js";
-import type { DisplayInfo, QuestionState, WindowInfo } from "./types.js";
+import type { AnswerHandoff, DisplayInfo, QuestionState, WindowInfo } from "./types.js";
 import { JS } from "./ui/client.js";
 import { HTML } from "./ui/page.js";
 import { CSS } from "./ui/styles.js";
@@ -23,6 +23,7 @@ import type {
   RunDetail,
   RunSummary,
   RunTurnArtifact,
+  RunTurnDetail,
   ScreenshotRecord,
   UiServerHandle,
   UiServerOptions,
@@ -640,6 +641,27 @@ function buildTurnAnswerPrompt(basePrompt: string, turn: RunTurnArtifact): strin
   ].join("\n");
 }
 
+function stateForAnswerTurn(turn: RunTurnArtifact, currentState: QuestionState): QuestionState {
+  if (turn.kind === "original") {
+    return currentState;
+  }
+
+  return turn.state ?? currentState;
+}
+
+function refreshOriginalTurnForAnswer(turn: RunTurnArtifact, currentState: QuestionState): RunTurnArtifact {
+  if (turn.kind !== "original") {
+    return turn;
+  }
+
+  return {
+    ...turn,
+    questionMarkdown: markdownFromQuestionState(currentState),
+    state: currentState,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 async function saveAnswerForTurn(
   runDir: string,
   turns: RunTurnArtifact[],
@@ -721,8 +743,9 @@ async function answerRun(
     turnIndex = pendingIndex >= 0 ? pendingIndex : turns.length - 1;
   }
 
+  turns[turnIndex] = refreshOriginalTurnForAnswer(turns[turnIndex], state);
   const targetTurn = turns[turnIndex];
-  const answerState = targetTurn.state ?? state;
+  const answerState = stateForAnswerTurn(targetTurn, state);
   const pendingScreenshotPaths = pendingScreenshotPathsForState(runPath, answerState);
   const baseAnswerPrompt = buildAnswerPrompt(
     answerState,
@@ -1175,7 +1198,7 @@ async function serveWindowPreview(res: ServerResponse, outDir: string, windowId:
   const previewDir = path.join(outDir, ".previews");
   await mkdir(previewDir, { recursive: true });
   try {
-    serveScreenshot(res, await captureWindowPreview(previewDir, windowInfo.id));
+    serveScreenshot(res, await captureWindowPreview(previewDir, windowInfo.id, isRemoteDesktopWindow(windowInfo)));
   } catch (_error) {
     res.writeHead(204, { "Cache-Control": "no-store" });
     res.end();

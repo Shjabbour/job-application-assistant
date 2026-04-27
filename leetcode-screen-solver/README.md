@@ -39,7 +39,10 @@ npm run watch -- --once --language python
 npm run watch -- --clipboard --language python
 npm run watch -- --listen --language python --profile .\candidate-context.txt
 npm run watch -- --ui --language python
+npm run native
 ```
+
+Use `npm run native` for the Electron app. The native app avoids the browser screen-share picker and can capture a selected app window such as Chrome Remote Desktop directly from the source picker.
 
 ## Key options
 

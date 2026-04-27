@@ -32,6 +32,7 @@ export interface WindowInfo extends ScreenRegion {
   processId: number;
   processName: string;
   title: string;
+  minimized?: boolean;
   label: string;
 }
 

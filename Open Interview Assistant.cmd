@@ -19,8 +19,9 @@ if not exist "leetcode-screen-solver\node_modules" (
   )
 )
 
-echo Starting Interview Assistant on http://127.0.0.1:4378 ...
-call npm run interview:watch:ui
+echo Starting native Interview Assistant ...
+cd /d "%~dp0leetcode-screen-solver"
+call npm run native
 
 if errorlevel 1 (
   echo Interview Assistant exited with an error.

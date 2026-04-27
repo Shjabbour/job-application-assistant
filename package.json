@@ -20,6 +20,12 @@
     "openclaw:start": "powershell -ExecutionPolicy Bypass -File .\\scripts\\start-openclaw-job-assistant.ps1",
     "openclaw:start-save": "powershell -ExecutionPolicy Bypass -File .\\scripts\\start-openclaw-job-assistant.ps1 start-save-remote-jobs",
     "openclaw:start-full": "powershell -ExecutionPolicy Bypass -File .\\scripts\\start-openclaw-job-assistant.ps1 start-full-autopilot",
+    "interview:install": "npm install --prefix leetcode-screen-solver",
+    "interview": "npm run native --prefix leetcode-screen-solver",
+    "interview:start": "npm run native --prefix leetcode-screen-solver",
+    "interview:ui": "npm run ui --prefix leetcode-screen-solver",
+    "interview:native": "npm run native --prefix leetcode-screen-solver",
+    "interview:native:smoke": "npm run native:smoke --prefix leetcode-screen-solver",
     "test": "npm run build"
   },
   "keywords": [],

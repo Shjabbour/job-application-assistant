@@ -10,7 +10,10 @@
     "image": "tsx src/index.ts image",
     "clipboard": "tsx src/index.ts clipboard",
     "listen": "tsx src/index.ts listen",
+    "start": "npm run native",
     "ui": "tsx src/index.ts ui",
+    "native": "electron electron",
+    "native:smoke": "electron electron/smoke",
     "build": "tsc -p tsconfig.json"
   },
   "engines": {
@@ -18,6 +21,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "electron": "^41.3.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"
   },
