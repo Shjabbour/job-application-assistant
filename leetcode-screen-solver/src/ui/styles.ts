@@ -687,9 +687,9 @@ textarea {
   background: #101820;
   padding: 10px;
   flex: 0 0 auto;
-  max-height: none;
+  max-height: min(52vh, 560px);
   min-height: 190px;
-  overflow: visible;
+  overflow: auto;
 }
 
 .screenshot-gallery {
@@ -710,8 +710,7 @@ textarea {
 .screenshot-item img {
   display: block;
   width: 100%;
-  height: auto;
-  max-height: none;
+  height: min(44vh, 460px);
   max-width: 100%;
   object-fit: contain;
   margin: 0 auto;

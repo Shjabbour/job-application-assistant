@@ -1,11 +1,14 @@
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
+import http from "node:http";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { assertUsableCapture } from "./captureValidation.js";
 import type { DisplayInfo, ScreenRegion, WindowInfo } from "./types.js";
 
 type RawDisplayInfo = Omit<DisplayInfo, "relativePosition" | "shortLabel" | "label">;
 type RawWindowInfo = Omit<WindowInfo, "label">;
+const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function runProcess(command: string, args: string[], env: NodeJS.ProcessEnv = {}, timeoutMs: number | null = null): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -715,6 +718,9 @@ public static class ForegroundWindowCaptureNative {
 
   [DllImport("user32.dll")]
   public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+  [DllImport("user32.dll")]
+  public static extern bool SetCursorPos(int X, int Y);
 }
 "@
 
@@ -754,18 +760,62 @@ try {
     [void][ForegroundWindowCaptureNative]::AttachThreadInput($currentThread, $targetThread, $false)
   }
 }
-Start-Sleep -Milliseconds 1500
-
 $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
+[void][ForegroundWindowCaptureNative]::SetCursorPos(
+  [int]($virtual.Left + ($virtual.Width / 2)),
+  [int]($virtual.Top + ($virtual.Height / 2))
+)
+Start-Sleep -Milliseconds 4500
+
+function Test-ContentAreaHasDetail([System.Drawing.Bitmap]$bitmap) {
+  $startX = [Math]::Min($bitmap.Width - 1, [Math]::Max(0, [int]($bitmap.Width * 0.25)))
+  $startY = [Math]::Min($bitmap.Height - 1, [Math]::Max(0, [int]($bitmap.Height * 0.28)))
+  $endX = [Math]::Min($bitmap.Width - 1, [Math]::Max($startX + 1, [int]($bitmap.Width * 0.96)))
+  $endY = [Math]::Min($bitmap.Height - 1, [Math]::Max($startY + 1, [int]($bitmap.Height * 0.90)))
+  $stepX = [Math]::Max(1, [int](($endX - $startX) / 64))
+  $stepY = [Math]::Max(1, [int](($endY - $startY) / 64))
+  $min = 255.0
+  $max = 0.0
+  $count = 0
+
+  for ($y = $startY; $y -le $endY; $y += $stepY) {
+    for ($x = $startX; $x -le $endX; $x += $stepX) {
+      $pixel = $bitmap.GetPixel($x, $y)
+      $lum = ($pixel.R * 0.2126) + ($pixel.G * 0.7152) + ($pixel.B * 0.0722)
+      if ($lum -lt $min) { $min = $lum }
+      if ($lum -gt $max) { $max = $lum }
+      $count += 1
+    }
+  }
+
+  $range = $max - $min
+  return (($count -gt 0) -and ($range -ge 35))
+}
+
 $bounds = New-Object System.Drawing.Rectangle $virtual.Left, $virtual.Top, $virtual.Width, $virtual.Height
-$bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
-$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+$bitmap = $null
+$graphics = $null
 try {
-  $graphics.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bounds.Size)
+  for ($attempt = 0; $attempt -lt 16; $attempt += 1) {
+    if ($graphics) { $graphics.Dispose(); $graphics = $null }
+    if ($bitmap) { $bitmap.Dispose(); $bitmap = $null }
+    $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $graphics.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bounds.Size)
+    $hasDetail = [bool](Test-ContentAreaHasDetail $bitmap)
+    if ($hasDetail) {
+      break
+    }
+    Start-Sleep -Milliseconds 650
+  }
+  $finalHasDetail = [bool](Test-ContentAreaHasDetail $bitmap)
+  if (-not $finalHasDetail) {
+    throw 'Chrome Remote Desktop content did not render before capture.'
+  }
   $bitmap.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
 } finally {
-  $graphics.Dispose()
-  $bitmap.Dispose()
+  if ($graphics) { $graphics.Dispose() }
+  if ($bitmap) { $bitmap.Dispose() }
   if ($wasMinimized) {
     [void][ForegroundWindowCaptureNative]::ShowWindow($handle, 6)
   } elseif (($originalRect.Right - $originalRect.Left) -gt 0 -and ($originalRect.Bottom - $originalRect.Top) -gt 0) {
@@ -792,8 +842,136 @@ try {
       LEETCODE_SOLVER_SCREENSHOT_PATH: outputPath,
       LEETCODE_SOLVER_WINDOW_ID: String(windowId),
     },
-    8000,
+    20000,
   );
+}
+
+async function restoreWindowsWindow(windowId: number): Promise<void> {
+  const script = `
+$ErrorActionPreference = 'Stop'
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class RestoreWindowNative {
+  [DllImport("user32.dll")]
+  public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+  [DllImport("user32.dll")]
+  public static extern bool SetForegroundWindow(IntPtr hWnd);
+}
+"@
+
+$handle = [IntPtr]::new([int64]$env:LEETCODE_SOLVER_WINDOW_ID)
+[void][RestoreWindowNative]::ShowWindow($handle, 9)
+[void][RestoreWindowNative]::SetForegroundWindow($handle)
+Start-Sleep -Milliseconds 1200
+`;
+
+  await runProcess(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+    {
+      LEETCODE_SOLVER_WINDOW_ID: String(windowId),
+    },
+    3000,
+  );
+}
+
+async function minimizeWindowsWindow(windowId: number): Promise<void> {
+  const script = `
+$ErrorActionPreference = 'Stop'
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class MinimizeWindowNative {
+  [DllImport("user32.dll")]
+  public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
+"@
+
+$handle = [IntPtr]::new([int64]$env:LEETCODE_SOLVER_WINDOW_ID)
+[void][MinimizeWindowNative]::ShowWindow($handle, 6)
+`;
+
+  await runProcess(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+    {
+      LEETCODE_SOLVER_WINDOW_ID: String(windowId),
+    },
+    1500,
+  );
+}
+
+async function captureElectronWindowSource(outputPath: string, window: RawWindowInfo): Promise<void> {
+  const nativeCaptureUrl = process.env.INTERVIEW_CODER_NATIVE_CAPTURE_URL || "http://127.0.0.1:4379";
+  try {
+    await postNativeCapture(nativeCaptureUrl, {
+      outputPath: path.resolve(outputPath),
+      windowId: window.id,
+      width: window.width,
+      height: window.height,
+    });
+    return;
+  } catch (_error) {
+    // Fall back to spawning the helper when the server is running without the native shell.
+  }
+
+  const electronCommand = process.platform === "win32"
+    ? path.join(PACKAGE_ROOT, "node_modules", "electron", "dist", "electron.exe")
+    : path.join(PACKAGE_ROOT, "node_modules", ".bin", "electron");
+  const scriptPath = path.join(PACKAGE_ROOT, "electron", "capture-source.cjs");
+
+  await runProcess(
+    electronCommand,
+    [scriptPath],
+    {
+      LEETCODE_SOLVER_SCREENSHOT_PATH: outputPath,
+      LEETCODE_SOLVER_WINDOW_ID: String(window.id),
+      LEETCODE_SOLVER_WINDOW_WIDTH: String(window.width),
+      LEETCODE_SOLVER_WINDOW_HEIGHT: String(window.height),
+    },
+    10000,
+  );
+}
+
+function postNativeCapture(baseUrl: string, payload: { outputPath: string; windowId: number; width: number; height: number }): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const url = new URL("/capture-window", baseUrl);
+    const body = JSON.stringify(payload);
+    const req = http.request(
+      url,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+        },
+        timeout: 5000,
+      },
+      (res) => {
+        let responseBody = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          responseBody += chunk;
+        });
+        res.on("end", () => {
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            resolve();
+            return;
+          }
+          reject(new Error(responseBody.trim() || `Native capture failed with HTTP ${res.statusCode}.`));
+        });
+      },
+    );
+    req.on("timeout", () => {
+      req.destroy(new Error("Native capture timed out."));
+    });
+    req.on("error", reject);
+    req.end(body);
+  });
 }
 
 async function captureMac(outputPath: string, region: ScreenRegion | null): Promise<void> {
@@ -852,11 +1030,29 @@ export async function captureWindow(runDir: string, windowId: number): Promise<s
   const screenDir = path.join(runDir, "screens");
   await mkdir(screenDir, { recursive: true });
   const outputPath = path.join(screenDir, `window-${timestampSlug()}.png`);
+  const windowInfo = (await listWindows()).find((item) => item.id === windowId);
+  if (!windowInfo) {
+    throw new Error("Selected app window was not found.");
+  }
+
+  const wasMinimized = windowInfo.minimized === true;
   try {
-    await captureWindowsWindowPreview(outputPath, windowId);
-    await assertUsableCapture(outputPath);
-  } catch {
-    await captureWindowsForegroundWindow(outputPath, windowId);
+    if (wasMinimized) {
+      await restoreWindowsWindow(windowId);
+    }
+    await captureElectronWindowSource(outputPath, windowInfo);
+  } catch (electronError) {
+    try {
+      await captureWindowsForegroundWindow(outputPath, windowId);
+    } catch (foregroundError) {
+      const electronMessage = electronError instanceof Error ? electronError.message : String(electronError);
+      const foregroundMessage = foregroundError instanceof Error ? foregroundError.message : String(foregroundError);
+      throw new Error(`Electron window capture failed: ${electronMessage}; foreground capture failed: ${foregroundMessage}`);
+    }
+  } finally {
+    if (wasMinimized) {
+      await minimizeWindowsWindow(windowId).catch(() => {});
+    }
   }
   return outputPath;
 }
