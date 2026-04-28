@@ -865,7 +865,7 @@ public static class RestoreWindowNative {
 $handle = [IntPtr]::new([int64]$env:LEETCODE_SOLVER_WINDOW_ID)
 [void][RestoreWindowNative]::ShowWindow($handle, 9)
 [void][RestoreWindowNative]::SetForegroundWindow($handle)
-Start-Sleep -Milliseconds 1200
+Start-Sleep -Milliseconds 450
 `;
 
   await runProcess(
@@ -1022,7 +1022,7 @@ export async function captureScreen(runDir: string, region: ScreenRegion | null)
   throw new Error(`Screen capture is not supported on ${process.platform}.`);
 }
 
-export async function captureWindow(runDir: string, windowId: number): Promise<string> {
+export async function captureWindow(runDir: string, windowId: number, knownWindow?: WindowInfo): Promise<string> {
   if (process.platform !== "win32") {
     throw new Error("App window capture is currently implemented for Windows.");
   }
@@ -1030,7 +1030,7 @@ export async function captureWindow(runDir: string, windowId: number): Promise<s
   const screenDir = path.join(runDir, "screens");
   await mkdir(screenDir, { recursive: true });
   const outputPath = path.join(screenDir, `window-${timestampSlug()}.png`);
-  const windowInfo = (await listWindows()).find((item) => item.id === windowId);
+  const windowInfo = knownWindow?.id === windowId ? knownWindow : (await listWindows()).find((item) => item.id === windowId);
   if (!windowInfo) {
     throw new Error("Selected app window was not found.");
   }

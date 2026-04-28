@@ -437,6 +437,7 @@ async function captureScreenshotForRun(
 
   let region: { x: number; y: number; width: number; height: number } | null = null;
   let windowCaptureId: number | null = null;
+  let windowCaptureInfo: WindowInfo | null = null;
   if (source.windowId) {
     const windows = await listWindows();
     const windowInfo = windows.find((item) => item.id === source.windowId);
@@ -450,6 +451,7 @@ async function captureScreenshotForRun(
       height: windowInfo.height,
     };
     windowCaptureId = windowInfo.id;
+    windowCaptureInfo = windowInfo;
   } else if (source.screenId) {
     const displays = await listDisplays();
     const screen = displays.find((item) => item.id === source.screenId);
@@ -478,11 +480,11 @@ async function captureScreenshotForRun(
   })();
 
   const screenshotPath = windowCaptureId
-    ? await captureWindow(runPath, windowCaptureId)
+    ? await captureWindow(runPath, windowCaptureId, windowCaptureInfo ?? undefined)
     : await captureScreen(runPath, region);
   await assertUsableCapture(screenshotPath);
 
-  const visibleText = await readImageTextSafely(screenshotPath);
+  const visibleText = windowCaptureId ? null : await readImageTextSafely(screenshotPath);
   const observation = observeScreenshotLocally(normalizedState, screenshotPath, visibleText);
   const nextState = mergeObservation(normalizedState, observation, {
     kind: "screenshot",
