@@ -25,6 +25,7 @@ import type {
   AutofillResult,
   ExternalApplyResult,
   ExtractedJobDraft,
+  FollowUpEmailCandidate,
   JobEnrichmentResult,
   JobCollectionItem,
   LinkedInApplyReview,
@@ -4331,6 +4332,209 @@ export async function attachedBrowserHasLinkedInPage(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export type GmailFollowUpScanOptions = {
+  days?: number;
+  limit?: number;
+  accountCount?: number;
+  query?: string;
+  readBodies?: boolean;
+};
+
+export async function scanAttachedGmailFollowUpEmails(
+  options: GmailFollowUpScanOptions = {},
+): Promise<FollowUpEmailCandidate[]> {
+  const days = Math.max(1, Math.min(Math.floor(options.days ?? 21), 90));
+  const limit = Math.max(1, Math.min(Math.floor(options.limit ?? 30), 100));
+  const accountCount = Math.max(1, Math.min(Math.floor(options.accountCount ?? 2), 5));
+  const query = options.query?.trim() || buildDefaultGmailFollowUpQuery(days);
+  const detectedAt = new Date().toISOString();
+
+  return withNewAttachedPage(async (page) => {
+    const candidates: FollowUpEmailCandidate[] = [];
+
+    for (let accountIndex = 0; accountIndex < accountCount && candidates.length < limit; accountIndex += 1) {
+      const searchUrl = `https://mail.google.com/mail/u/${accountIndex}/#search/${encodeURIComponent(query)}`;
+      await gotoAttachedUrl(page, searchUrl);
+      await waitForGmailSearchSettled(page);
+
+      const pageText = tidy(await page.locator("body").innerText({ timeout: 5_000 }).catch(() => ""));
+      const title = tidy(await page.title().catch(() => ""));
+      if (/sign in|accounts\.google|workspace\.google/i.test(`${title} ${page.url()} ${pageText}`)) {
+        continue;
+      }
+
+      const rows = await extractGmailResultRows(page, {
+        accountIndex,
+        searchQuery: query,
+        detectedAt,
+      });
+
+      if (options.readBodies) {
+        for (let index = 0; index < rows.length && candidates.length + index < limit; index += 1) {
+          rows[index].bodyText = await readGmailResultBody(page, searchUrl, index);
+        }
+      }
+
+      candidates.push(...rows);
+    }
+
+    const deduped = dedupeFollowUpEmailCandidates(candidates).slice(0, limit);
+    await saveBrowserArtifact("gmail-follow-up-scan", {
+      query,
+      days,
+      accountCount,
+      readBodies: Boolean(options.readBodies),
+      detectedAt,
+      emails: deduped,
+    });
+    return deduped;
+  });
+}
+
+function buildDefaultGmailFollowUpQuery(days: number): string {
+  return [
+    `newer:${days}d`,
+    "(",
+    "application OR interview OR assessment OR recruiter OR",
+    '"next steps" OR "thank you for applying" OR "thanks for applying" OR',
+    '"application received" OR unfortunately OR "action required" OR "complete your application"',
+    ")",
+  ].join(" ");
+}
+
+async function waitForGmailSearchSettled(page: Page): Promise<void> {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const rowCount = await page.locator('[role="main"] tr.zA, [role="main"] .Cp .zA').count().catch(() => 0);
+    const bodyText = tidy(await page.locator("body").innerText({ timeout: 1_000 }).catch(() => ""));
+    if (rowCount > 0 || /no messages matched|no results found|sign in|accounts\.google/i.test(bodyText)) {
+      return;
+    }
+    await page.waitForTimeout(750).catch(() => undefined);
+  }
+}
+
+async function extractGmailResultRows(
+  page: Page,
+  context: {
+    accountIndex: number;
+    searchQuery: string;
+    detectedAt: string;
+  },
+): Promise<FollowUpEmailCandidate[]> {
+  const sourceUrl = page.url();
+  const rows = await page
+    .locator('[role="main"] tr.zA, [role="main"] .Cp .zA')
+    .evaluateAll((elements) =>
+      elements.map((element) => {
+        const clean = (value: unknown) => String(value || "").replace(/\s+/g, " ").trim();
+        const senderElement =
+          element.querySelector(".yW span[email], .bA4 span[email], span[email]") ||
+          element.querySelector(".yW span[name], .bA4 span[name], .yW, .bA4");
+        const sender =
+          clean(senderElement?.getAttribute("name")) ||
+          clean(senderElement?.getAttribute("email")) ||
+          clean(senderElement?.textContent);
+        const senderEmail = clean(senderElement?.getAttribute("email"));
+        const subject = clean(element.querySelector(".bog, [data-thread-id] .bog")?.textContent);
+        const snippet = clean(element.querySelector(".y2, .xS")?.textContent);
+        const dateElement = element.querySelector(".xW span[title], .xW span, .xW");
+        const receivedAt = clean(dateElement?.getAttribute("title")) || clean(dateElement?.textContent);
+        const rowText = clean(element.textContent);
+
+        return {
+          sender: senderEmail && !sender.includes(senderEmail) ? `${sender} <${senderEmail}>` : sender || senderEmail,
+          subject,
+          snippet,
+          receivedAt,
+          rowText,
+        };
+      }),
+    )
+    .catch(() => [] as Array<{ sender: string; subject: string; snippet: string; receivedAt: string; rowText: string }>);
+
+  return rows
+    .filter((row) => row.sender || row.subject || row.snippet || row.rowText)
+    .map((row) => ({
+      sender: tidy(row.sender) || "Unknown sender",
+      subject: tidy(row.subject) || parseSubjectFromGmailRowText(row.rowText),
+      snippet: tidy(row.snippet || row.rowText).slice(0, 900),
+      receivedAt: parseGmailReceivedAt(row.receivedAt),
+      sourceUrl,
+      accountIndex: context.accountIndex,
+      searchQuery: context.searchQuery,
+      detectedAt: context.detectedAt,
+    }));
+}
+
+async function readGmailResultBody(page: Page, searchUrl: string, index: number): Promise<string> {
+  await gotoAttachedUrl(page, searchUrl).catch(() => undefined);
+  await waitForGmailSearchSettled(page);
+  const row = page.locator('[role="main"] tr.zA, [role="main"] .Cp .zA').nth(index);
+  const visible = await row.isVisible().catch(() => false);
+  if (!visible) {
+    return "";
+  }
+
+  await row.click({ timeout: 5_000 }).catch(() => undefined);
+  await page.waitForTimeout(1_200).catch(() => undefined);
+  const text = tidy(
+    await page
+      .locator('[role="main"]')
+      .innerText({ timeout: 5_000 })
+      .catch(() => ""),
+  );
+  return text.slice(0, 3_000);
+}
+
+function parseSubjectFromGmailRowText(value: string): string {
+  const cleaned = tidy(value);
+  if (!cleaned) {
+    return "No subject";
+  }
+
+  const parts = cleaned.split(/\s+-\s+|\s{2,}/).map(tidy).filter(Boolean);
+  return parts.length > 1 ? parts[1].slice(0, 180) : cleaned.slice(0, 180);
+}
+
+function parseGmailReceivedAt(value: string): string {
+  const raw = tidy(value);
+  if (!raw) {
+    return new Date().toISOString();
+  }
+
+  const direct = Date.parse(raw);
+  if (Number.isFinite(direct)) {
+    return new Date(direct).toISOString();
+  }
+
+  const currentYear = new Date().getFullYear();
+  const withYear = Date.parse(`${raw} ${currentYear}`);
+  if (Number.isFinite(withYear)) {
+    return new Date(withYear).toISOString();
+  }
+
+  return new Date().toISOString();
+}
+
+function dedupeFollowUpEmailCandidates(candidates: FollowUpEmailCandidate[]): FollowUpEmailCandidate[] {
+  const seen = new Set<string>();
+  const deduped: FollowUpEmailCandidate[] = [];
+
+  for (const candidate of candidates) {
+    const key = [candidate.accountIndex, candidate.sender, candidate.subject, candidate.receivedAt, candidate.snippet]
+      .map((part) => tidy(String(part)).toLowerCase())
+      .join("|");
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(candidate);
+  }
+
+  return deduped;
 }
 
 async function saveBrowserArtifact(prefix: string, value: unknown): Promise<void> {

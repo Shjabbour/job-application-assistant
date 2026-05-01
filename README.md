@@ -76,6 +76,7 @@ npm run cli -- browser attach-help
 npm run cli -- browser save-remote-jobs
 npm run cli -- browser apply-saved-jobs
 npm run cli -- browser apply-job-url <url>
+npm run cli -- browser review-follow-ups
 npm run cli -- browser start-autopilot
 npm run cli -- browser start-full-autopilot
 ```
@@ -291,6 +292,7 @@ Inside `npm run chat`:
 - `/browser save-remote-jobs`
 - `/browser apply-saved-jobs`
 - `/browser apply-job-url <url>`
+- `/browser review-follow-ups`
 - `/browser start-autopilot`
 - `/browser start-full-autopilot`
 - `/quit`
@@ -309,6 +311,7 @@ Then log in manually in that Chrome window and run:
 npm run cli -- browser save-remote-jobs
 npm run cli -- browser apply-saved-jobs
 npm run cli -- browser apply-job-url <url>
+npm run cli -- browser review-follow-ups
 npm run cli -- browser start-autopilot
 npm run cli -- browser start-full-autopilot
 ```

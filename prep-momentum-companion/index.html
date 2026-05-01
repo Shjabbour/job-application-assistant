@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark light">
+    <title>Momentum Desk</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="./styles.css">
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="top-bar">
+        <div class="brand-block">
+          <p class="eyebrow">Career Prep Companion</p>
+          <h1>Momentum Desk</h1>
+        </div>
+        <div class="header-metrics" aria-label="Momentum summary">
+          <div class="metric-tile">
+            <strong id="todayMinutes">0</strong>
+            <span>min today</span>
+          </div>
+          <div class="metric-tile">
+            <strong id="taskRatio">0/0</strong>
+            <span>tasks</span>
+          </div>
+          <div class="metric-tile">
+            <strong id="streakCount">0</strong>
+            <span>day streak</span>
+          </div>
+          <div class="header-actions" aria-label="Data controls">
+            <button id="resetTodayButton" class="tool-button" type="button">Reset Today</button>
+            <button id="clearAllButton" class="tool-button danger-button" type="button">Clear All</button>
+            <button id="themeButton" class="tool-button" type="button" aria-label="Switch theme">Bright</button>
+          </div>
+        </div>
+      </header>
+
+      <section class="momentum-band" aria-label="Today momentum">
+        <div class="momentum-copy">
+          <p id="dateLabel" class="date-label">Today</p>
+          <h2 id="momentumMessage">Pick one useful block and make it visible.</h2>
+          <div class="next-block">
+            <div>
+              <span>Next block</span>
+              <strong id="nextBlockTitle">Automation Tool</strong>
+              <small id="nextBlockMeta">25 min focus block</small>
+            </div>
+            <button id="addNextBlockButton" class="primary-button" type="button">Add To Plan</button>
+          </div>
+        </div>
+        <div class="score-wrap">
+          <div id="scoreRing" class="score-ring" aria-label="Momentum score">
+            <div>
+              <strong id="scoreValue">0%</strong>
+              <span>momentum</span>
+            </div>
+          </div>
+          <p id="weekSummary">0 min this week</p>
+        </div>
+      </section>
+
+      <div class="workspace">
+        <aside class="side-stack">
+          <section class="panel timer-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Focus</p>
+                <h2>Timer</h2>
+              </div>
+              <select id="timerLane" aria-label="Timer lane"></select>
+            </div>
+            <div id="timerDisplay" class="timer-display" aria-live="polite">25:00</div>
+            <div class="segmented" role="group" aria-label="Timer duration">
+              <button class="segment active" type="button" data-duration="25">25</button>
+              <button class="segment" type="button" data-duration="45">45</button>
+              <button class="segment" type="button" data-duration="60">60</button>
+            </div>
+            <div class="button-row">
+              <button id="timerStartButton" class="primary-button" type="button">Start</button>
+              <button id="timerResetButton" class="secondary-button" type="button">Reset</button>
+            </div>
+          </section>
+
+          <section class="panel checkin-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Check In</p>
+                <h2>Energy</h2>
+              </div>
+              <strong id="energyValue" class="energy-value">3/5</strong>
+            </div>
+            <input id="energyRange" class="energy-range" type="range" min="1" max="5" step="1" value="3" aria-label="Energy level">
+            <label class="field-label" for="blockerInput">Blocker</label>
+            <textarea id="blockerInput" rows="3" placeholder="What is slowing you down?"></textarea>
+            <label class="field-label" for="nextActionInput">Smallest next action</label>
+            <input id="nextActionInput" type="text" placeholder="One action under 10 minutes">
+          </section>
+
+          <section class="panel prompt-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Prep</p>
+                <h2>Prompt</h2>
+              </div>
+              <button id="newPromptButton" class="tool-button" type="button">New</button>
+            </div>
+            <p id="prepPrompt" class="prep-prompt">Loading prompt...</p>
+            <button id="addPromptButton" class="secondary-button full-width" type="button">Add Prompt</button>
+          </section>
+        </aside>
+
+        <section class="main-stack">
+          <section class="panel daily-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Today</p>
+                <h2>Daily Plan</h2>
+              </div>
+              <button id="seedPlanButton" class="secondary-button" type="button">Add Plan Set</button>
+            </div>
+            <form id="taskForm" class="inline-form" autocomplete="off">
+              <input id="taskTitleInput" type="text" placeholder="Task, rep, or small deliverable" aria-label="Task title" required>
+              <select id="taskLaneInput" aria-label="Task lane"></select>
+              <button class="primary-button" type="submit">Add</button>
+            </form>
+            <div id="taskList" class="task-list" aria-live="polite"></div>
+          </section>
+
+          <section class="lane-grid" id="laneGrid" aria-label="Prep lanes"></section>
+
+          <section class="panel queue-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">YouTube</p>
+                <h2>Mock Queue</h2>
+              </div>
+              <span id="queueCount" class="soft-count">0 queued</span>
+            </div>
+            <form id="videoForm" class="video-form" autocomplete="off">
+              <input id="videoTitleInput" type="text" placeholder="Mock interview title" aria-label="Video title">
+              <input id="videoUrlInput" type="url" placeholder="https://youtube.com/..." aria-label="Video URL" required>
+              <button class="primary-button" type="submit">Add</button>
+            </form>
+            <div id="videoList" class="video-list" aria-live="polite"></div>
+          </section>
+
+          <section class="panel win-panel">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Proof</p>
+                <h2>Wins</h2>
+              </div>
+              <select id="winLaneInput" aria-label="Win lane"></select>
+            </div>
+            <form id="winForm" class="inline-form" autocomplete="off">
+              <input id="winTextInput" type="text" placeholder="Something you moved forward" aria-label="Win text" required>
+              <button class="primary-button" type="submit">Log Win</button>
+            </form>
+            <div id="proofLog" class="proof-log" aria-live="polite"></div>
+          </section>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>

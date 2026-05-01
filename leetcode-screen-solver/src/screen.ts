@@ -303,16 +303,20 @@ function addWindowLabels(windows: RawWindowInfo[]): WindowInfo[] {
   }));
 }
 
-export function isRemoteDesktopWindow(windowInfo: Pick<RawWindowInfo, "processName" | "title">): boolean {
+function isChromeRemoteDesktopWindow(windowInfo: Pick<RawWindowInfo, "processName" | "title">): boolean {
   const processName = windowInfo.processName.toLowerCase();
   const title = windowInfo.title.toLowerCase();
   return (
     title.includes("chrome remote desktop") ||
     title.includes("remote chrome desktop") ||
-    title.includes("remote desktop") ||
     processName.includes("remoting_desktop") ||
     processName.includes("remote_assistance_host")
   );
+}
+
+export function isRemoteDesktopWindow(windowInfo: Pick<RawWindowInfo, "processName" | "title">): boolean {
+  const title = windowInfo.title.toLowerCase();
+  return isChromeRemoteDesktopWindow(windowInfo) || title.includes("remote desktop");
 }
 
 function usefulWindowScore(windowInfo: RawWindowInfo): number {
@@ -665,7 +669,15 @@ try {
   );
 }
 
-async function captureWindowsForegroundWindow(outputPath: string, windowId: number): Promise<void> {
+type ForegroundWindowCaptureOptions = {
+  waitForRemoteDesktopRender?: boolean;
+};
+
+async function captureWindowsForegroundWindow(
+  outputPath: string,
+  windowId: number,
+  options: ForegroundWindowCaptureOptions = {},
+): Promise<void> {
   const script = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
@@ -726,6 +738,7 @@ public static class ForegroundWindowCaptureNative {
 
 $path = $env:LEETCODE_SOLVER_SCREENSHOT_PATH
 $handle = [IntPtr]::new([int64]$env:LEETCODE_SOLVER_WINDOW_ID)
+$waitForRemoteDesktopRender = $env:LEETCODE_SOLVER_WAIT_FOR_REMOTE_DESKTOP_RENDER -eq '1'
 $previous = [ForegroundWindowCaptureNative]::GetForegroundWindow()
 $wasMinimized = [ForegroundWindowCaptureNative]::IsIconic($handle)
 $originalRect = New-Object ForegroundWindowCaptureNative+RECT
@@ -765,7 +778,9 @@ $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
   [int]($virtual.Left + ($virtual.Width / 2)),
   [int]($virtual.Top + ($virtual.Height / 2))
 )
-Start-Sleep -Milliseconds 4500
+if ($waitForRemoteDesktopRender) {
+  Start-Sleep -Milliseconds 4500
+}
 
 function Test-ContentAreaHasDetail([System.Drawing.Bitmap]$bitmap) {
   $startX = [Math]::Min($bitmap.Width - 1, [Math]::Max(0, [int]($bitmap.Width * 0.25)))
@@ -796,21 +811,27 @@ $bounds = New-Object System.Drawing.Rectangle $virtual.Left, $virtual.Top, $virt
 $bitmap = $null
 $graphics = $null
 try {
-  for ($attempt = 0; $attempt -lt 16; $attempt += 1) {
-    if ($graphics) { $graphics.Dispose(); $graphics = $null }
-    if ($bitmap) { $bitmap.Dispose(); $bitmap = $null }
+  if ($waitForRemoteDesktopRender) {
+    for ($attempt = 0; $attempt -lt 16; $attempt += 1) {
+      if ($graphics) { $graphics.Dispose(); $graphics = $null }
+      if ($bitmap) { $bitmap.Dispose(); $bitmap = $null }
+      $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+      $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+      $graphics.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bounds.Size)
+      $hasDetail = [bool](Test-ContentAreaHasDetail $bitmap)
+      if ($hasDetail) {
+        break
+      }
+      Start-Sleep -Milliseconds 650
+    }
+    $finalHasDetail = [bool](Test-ContentAreaHasDetail $bitmap)
+    if (-not $finalHasDetail) {
+      throw 'Chrome Remote Desktop content did not render before capture.'
+    }
+  } else {
     $bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
     $graphics.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bounds.Size)
-    $hasDetail = [bool](Test-ContentAreaHasDetail $bitmap)
-    if ($hasDetail) {
-      break
-    }
-    Start-Sleep -Milliseconds 650
-  }
-  $finalHasDetail = [bool](Test-ContentAreaHasDetail $bitmap)
-  if (-not $finalHasDetail) {
-    throw 'Chrome Remote Desktop content did not render before capture.'
   }
   $bitmap.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
 } finally {
@@ -841,6 +862,7 @@ try {
     {
       LEETCODE_SOLVER_SCREENSHOT_PATH: outputPath,
       LEETCODE_SOLVER_WINDOW_ID: String(windowId),
+      LEETCODE_SOLVER_WAIT_FOR_REMOTE_DESKTOP_RENDER: options.waitForRemoteDesktopRender ? "1" : "0",
     },
     20000,
   );
@@ -1043,7 +1065,9 @@ export async function captureWindow(runDir: string, windowId: number, knownWindo
     await captureElectronWindowSource(outputPath, windowInfo);
   } catch (electronError) {
     try {
-      await captureWindowsForegroundWindow(outputPath, windowId);
+      await captureWindowsForegroundWindow(outputPath, windowId, {
+        waitForRemoteDesktopRender: isChromeRemoteDesktopWindow(windowInfo) && wasMinimized,
+      });
     } catch (foregroundError) {
       const electronMessage = electronError instanceof Error ? electronError.message : String(electronError);
       const foregroundMessage = foregroundError instanceof Error ? foregroundError.message : String(foregroundError);
@@ -1066,7 +1090,10 @@ export async function captureWindowPreview(runDir: string, windowId: number, for
   await mkdir(screenDir, { recursive: true });
   const outputPath = path.join(screenDir, `window-preview-${timestampSlug()}.png`);
   if (forceForeground) {
-    await captureWindowsForegroundWindow(outputPath, windowId);
+    const windowInfo = (await listWindows()).find((item) => item.id === windowId);
+    await captureWindowsForegroundWindow(outputPath, windowId, {
+      waitForRemoteDesktopRender: Boolean(windowInfo && isChromeRemoteDesktopWindow(windowInfo) && windowInfo.minimized),
+    });
   } else {
     await captureWindowsWindowPreview(outputPath, windowId);
   }

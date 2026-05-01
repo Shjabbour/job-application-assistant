@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { askCodexCliAgent, askOpenClawAgent } from "./agentHandoff.js";
 import { assertUsableCapture } from "./captureValidation.js";
+import { normalizeDictationInput, recognizeSpeechOnce } from "./dictation.js";
 import { extractMarkdownSection } from "./markdown.js";
 import { buildAnswerPrompt, buildAnswerRetryPrompt, hasUsableQuestionContext, isMissingDetailsAnswer } from "./prompts.js";
 import { captureScreen, captureWindow, captureWindowPreview, isRemoteDesktopWindow, listDisplays, listWindows, makeRunId } from "./screen.js";
@@ -1367,6 +1368,14 @@ async function handleRequest(
 
   if (pathname === "/api/monitor/stop" && req.method === "POST") {
     sendJson(res, 200, monitorController.stop());
+    return;
+  }
+
+  if (pathname === "/api/dictation/once" && req.method === "POST") {
+    const body = await readRequestJson(req);
+    const timeoutMs = Number(body.timeoutMs);
+    const input = normalizeDictationInput(body.input);
+    sendJson(res, 200, await recognizeSpeechOnce(Number.isFinite(timeoutMs) ? timeoutMs : 8000, input));
     return;
   }
 

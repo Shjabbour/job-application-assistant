@@ -63,7 +63,7 @@ Keyboard controls in capture mode:
 - `r`: reset captured context
 - `q`: quit
 
-With `--listen`, open the printed local URL, start browser speech recognition, then click `Listen` and `Answer`.
+With `--listen`, open the printed local URL, choose `PC audio` or `Microphone`, then click `Listen` and `Answer`. `PC audio` is the default and captures Windows speaker/output audio instead of the microphone.
 
 ## Candidate Context
 

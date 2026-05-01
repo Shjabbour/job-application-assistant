@@ -12,7 +12,6 @@ export const JS = String.raw`var state = {
   overlayOpen: false,
   answering: false,
   activeTab: 'answer',
-  activeAnswerMode: 'firstTry',
   activeSourceTab: 'applications',
   previewQueueToken: 0,
   sourcePickerSignature: '',
@@ -25,6 +24,8 @@ export const JS = String.raw`var state = {
   openQuestionAfterCapture: false,
   recognition: null,
   listening: false,
+  audioInput: 'pc',
+  nativeDictationRunning: false,
   captureStream: null,
   captureVideo: null,
   captureSourceLabel: '',
@@ -554,117 +555,6 @@ function renderMarkdown(markdown, options) {
   return html;
 }
 
-function normalizeAnswerHeading(value) {
-  return String(value)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
-
-function splitAnswerSections(markdown) {
-  var lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n');
-  var intro = [];
-  var sections = [];
-  var current = null;
-
-  lines.forEach(function (line) {
-    var h2 = line.match(/^##\s+(.+?)\s*#*\s*$/);
-    if (h2) {
-      if (current) {
-        sections.push(current);
-      }
-      current = { title: h2[1].trim(), lines: [] };
-      return;
-    }
-
-    if (current) {
-      current.lines.push(line);
-    } else {
-      intro.push(line);
-    }
-  });
-
-  if (current) {
-    sections.push(current);
-  }
-
-  return {
-    intro: intro.join('\n').trim(),
-    sections: sections,
-  };
-}
-
-function sectionToMarkdown(section) {
-  var body = section.lines.join('\n').trim();
-  return body ? '## ' + section.title + '\n\n' + body : '## ' + section.title;
-}
-
-function answerHasWalkthroughTabs(markdown) {
-  var split = splitAnswerSections(markdown);
-  return split.sections.some(function (section) {
-    var name = normalizeAnswerHeading(section.title);
-    return name === 'naive first try' || name === 'robust walkthrough' || name === 'robust answer';
-  });
-}
-
-function answerMarkdownForMode(markdown, mode) {
-  var split = splitAnswerSections(markdown);
-  if (!split.sections.length || !answerHasWalkthroughTabs(markdown)) {
-    return markdown;
-  }
-
-  var firstTrySections = {
-    'say this first': true,
-    'hints': true,
-    'naive first try': true,
-  };
-  var robustPrimarySections = {
-    'robust walkthrough': true,
-    'robust answer': true,
-    'code': true,
-    'complexity': true,
-    'fix': true,
-    'if asked': true,
-  };
-  var selected = split.sections.filter(function (section) {
-    var name = normalizeAnswerHeading(section.title);
-    var isFirstTrySection = Boolean(firstTrySections[name]);
-    if (mode === 'robust') {
-      return name === 'say this first' || (!isFirstTrySection && Boolean(robustPrimarySections[name]));
-    }
-    return isFirstTrySection;
-  });
-
-  if (!selected.length) {
-    selected = mode === 'robust'
-      ? split.sections
-      : split.sections.slice(0, Math.min(3, split.sections.length));
-  }
-
-  var parts = [];
-  if (mode !== 'robust' && split.intro) {
-    parts.push(split.intro);
-  }
-  selected.forEach(function (section) {
-    parts.push(sectionToMarkdown(section));
-  });
-
-  return parts.join('\n\n').trim() || markdown;
-}
-
-function renderAnswerModeButtons(showTabs) {
-  if (!elements.answerModeTabs || !elements.firstTryAnswerTab || !elements.robustAnswerTab) {
-    return;
-  }
-
-  elements.answerModeTabs.classList.toggle('hidden', !showTabs);
-  var robustActive = state.activeAnswerMode === 'robust';
-  elements.firstTryAnswerTab.classList.toggle('active', !robustActive);
-  elements.firstTryAnswerTab.setAttribute('aria-selected', String(!robustActive));
-  elements.robustAnswerTab.classList.toggle('active', robustActive);
-  elements.robustAnswerTab.setAttribute('aria-selected', String(robustActive));
-}
-
 function clearAnswerHash() {
   if (window.location.hash && window.history && window.history.replaceState) {
     window.history.replaceState(null, document.title, window.location.pathname + window.location.search);
@@ -758,32 +648,16 @@ function renderAnswerContent(run) {
   var answerMarkdown = selectedAnswerMarkdown(run);
   var hasAnswerMarkdown = Boolean(answerMarkdown && answerMarkdown.trim());
   if (hasAnswerMarkdown) {
-    var useWalkthroughTabs = answerHasWalkthroughTabs(answerMarkdown);
-    renderAnswerModeButtons(useWalkthroughTabs);
-    var markdown = useWalkthroughTabs
-      ? answerMarkdownForMode(answerMarkdown, state.activeAnswerMode)
-      : answerMarkdown;
-    elements.answerView.innerHTML = renderMarkdown(markdown, { sectioned: true, summary: false });
+    elements.answerView.innerHTML = renderMarkdown(answerMarkdown, { sectioned: true, summary: false });
     return;
   }
 
-  renderAnswerModeButtons(false);
   if (selectedTurnReadyForAnswer(run)) {
     elements.answerView.innerHTML = '<p class="empty">' + escapeHtml(selectedTurnLabel(run)) + ' is ready. Click Answer to generate a solution.</p>';
     return;
   }
 
   elements.answerView.innerHTML = '<p class="empty">Solution will appear after the question is ready.</p>';
-}
-
-function selectAnswerMode(mode) {
-  state.activeAnswerMode = mode === 'robust' ? 'robust' : 'firstTry';
-  renderAnswerModeButtons(Boolean(selectedAnswerMarkdown(state.currentRun)));
-  if (state.currentRun) {
-    renderAnswerContent(state.currentRun);
-    clearAnswerHash();
-    scrollAnswerToTop();
-  }
 }
 
 function renderHintsContent(run) {
@@ -800,9 +674,6 @@ function renderHintsContent(run) {
 }
 
 function selectTurn(turnId) {
-  if (state.activeTurnId !== turnId) {
-    state.activeAnswerMode = 'firstTry';
-  }
   state.activeTurnId = turnId || null;
   if (!state.currentRun) {
     return;
@@ -1256,14 +1127,12 @@ function renderRun(run) {
     : '';
 
   if (!state.currentRun || state.currentRun.id !== run.id) {
-    state.activeAnswerMode = 'firstTry';
     state.activeTurnId = latestTurnId(run);
   } else {
     var turns = runTurns(run);
     var hasActiveTurn = state.activeTurnId && turns.some(function (turn) { return turn.id === state.activeTurnId; });
     if (turns.length && !hasActiveTurn) {
       state.activeTurnId = latestTurnId(run);
-      state.activeAnswerMode = 'firstTry';
     } else if (!turns.length) {
       state.activeTurnId = null;
     }
@@ -1370,10 +1239,13 @@ async function deleteScreenshot(index) {
 
   try {
     var detail = await deleteJson('/api/runs/' + encodeURIComponent(state.currentRunId) + '/screens/' + index);
+    if (detail && detail.id) {
+      state.currentRunId = detail.id;
+    }
     state.currentRun = detail;
     state.screenshotGallerySignature = '';
-    renderRunDetail(detail);
-    await refreshRuns();
+    renderRun(detail);
+    await loadRuns();
   } catch (error) {
     elements.monitorStatus.textContent = error && error.message ? error.message : String(error);
   }
@@ -1427,7 +1299,6 @@ function clearForNewCapture(screenId) {
     : '<p class="empty">Type or dictate the question below, or choose a screen and click Capture.</p>';
   renderTurnTabs(null);
   elements.answerView.innerHTML = '<p class="empty">Capture the new question before generating a solution.</p>';
-  renderAnswerModeButtons(false);
   elements.hintsView.innerHTML = '<p class="empty">Hints will appear when available.</p>';
   elements.hintsSection.classList.add('hidden');
   elements.screenshotWrap.classList.add('hidden');
@@ -1474,13 +1345,33 @@ function recognitionCtor() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
+function normalizeAudioInput(value) {
+  return value === 'microphone' ? 'microphone' : 'pc';
+}
+
+function audioInputLabel(input) {
+  return normalizeAudioInput(input) === 'microphone' ? 'microphone' : 'PC audio';
+}
+
+function currentAudioInput() {
+  if (elements.audioInputSelect) {
+    return normalizeAudioInput(elements.audioInputSelect.value);
+  }
+  return normalizeAudioInput(state.audioInput);
+}
+
 function renderListenButton() {
   if (!elements.listenButton) {
     return;
   }
+  var input = currentAudioInput();
   elements.listenButton.textContent = state.listening ? 'Listening...' : 'Listen';
+  elements.listenButton.title = input === 'microphone' ? 'Listen to microphone (L)' : 'Listen to PC audio (L)';
   elements.listenButton.classList.toggle('active', state.listening);
   elements.listenButton.setAttribute('aria-pressed', String(state.listening));
+  if (elements.audioInputSelect) {
+    elements.audioInputSelect.disabled = state.listening;
+  }
 }
 
 function renderQuestionInput() {
@@ -1545,7 +1436,6 @@ async function postTranscript(text, source) {
     state.currentRunId = detail.id;
     state.newQuestionPending = false;
     state.activeTurnId = latestTurnId(detail);
-    state.activeAnswerMode = 'firstTry';
   }
   renderRun(detail);
   selectTab('question');
@@ -1587,10 +1477,83 @@ async function submitQuestionInput() {
   }
 }
 
+async function requestNativeDictationOnce(input) {
+  var result = await postJson('/api/dictation/once', { timeoutMs: 8000, input: normalizeAudioInput(input) });
+  return result && typeof result.text === 'string' ? result.text : '';
+}
+
+async function nativeDictationLoop() {
+  if (state.nativeDictationRunning) {
+    return;
+  }
+
+  state.nativeDictationRunning = true;
+  var emptyCount = 0;
+  var input = normalizeAudioInput(state.audioInput);
+  var label = audioInputLabel(input);
+  try {
+    while (state.listening && !state.recognition) {
+      elements.monitorStatus.textContent = emptyCount
+        ? 'Listening to ' + label + '...'
+        : (input === 'microphone' ? 'Starting microphone dictation...' : 'Starting PC audio listen...');
+      try {
+        var text = await requestNativeDictationOnce(input);
+        if (!state.listening || state.recognition) {
+          break;
+        }
+        if (text && text.trim()) {
+          appendQuestionInputText(text);
+          emptyCount = 0;
+          elements.monitorStatus.textContent = 'Dictating from ' + label + ' into the question text box...';
+        } else {
+          emptyCount += 1;
+          elements.monitorStatus.textContent = 'Listening to ' + label + '...';
+        }
+      } catch (error) {
+        if (state.listening && !state.recognition) {
+          elements.monitorStatus.textContent = error.message || String(error);
+          setListening(false);
+        }
+        break;
+      }
+    }
+  } finally {
+    state.nativeDictationRunning = false;
+    if (!state.recognition) {
+      renderListenButton();
+    }
+  }
+}
+
+function startNativeDictation(input) {
+  stopListening();
+  state.audioInput = normalizeAudioInput(input);
+  selectTab('question');
+  if (elements.questionInput) {
+    elements.questionInput.focus();
+  }
+  setListening(true);
+  elements.monitorStatus.textContent = state.audioInput === 'microphone'
+    ? 'Starting microphone dictation...'
+    : 'Starting PC audio listen...';
+  nativeDictationLoop();
+}
+
 function startListening() {
+  var input = currentAudioInput();
+  if (state.nativeShell) {
+    startNativeDictation(input);
+    return;
+  }
+
+  if (input === 'pc') {
+    elements.monitorStatus.textContent = 'PC audio listening is available in the native app. Switch input to Microphone for browser dictation.';
+    return;
+  }
+
   var Recognition = recognitionCtor();
   if (!Recognition) {
-    elements.monitorStatus.textContent = 'Browser speech recognition is not available in this browser.';
+    elements.monitorStatus.textContent = 'Speech recognition is not available in this browser.';
     return;
   }
 
@@ -1615,7 +1578,7 @@ function startListening() {
 
     if (finalText.trim()) {
       appendQuestionInputText(finalText);
-      elements.monitorStatus.textContent = 'Dictating into the question text box...';
+      elements.monitorStatus.textContent = 'Dictating from microphone into the question text box...';
     }
   };
 
@@ -1643,7 +1606,7 @@ function startListening() {
   setListening(true);
   try {
     recognition.start();
-    elements.monitorStatus.textContent = 'Dictating into the question text box...';
+    elements.monitorStatus.textContent = 'Dictating from microphone into the question text box...';
   } catch (error) {
     setListening(false);
     state.recognition = null;
@@ -1717,7 +1680,6 @@ async function requestAnswer() {
   }
 
   clearAnswerHash();
-  renderAnswerModeButtons(false);
   elements.answerView.innerHTML = '<p class="empty">Generating answer...</p>';
   state.answering = true;
   state.answerRequestedRunId = state.currentRunId;
@@ -1762,7 +1724,6 @@ async function postCaptureDetail(payload) {
     state.currentRunId = detail.id;
     state.newQuestionPending = false;
     state.activeTurnId = latestTurnId(detail);
-    state.activeAnswerMode = 'firstTry';
   }
   renderRun(detail);
   if (detail && detail.id) {
@@ -1780,7 +1741,6 @@ async function postCapturedImageDetail(imageData) {
     state.currentRunId = detail.id;
     state.newQuestionPending = false;
     state.activeTurnId = latestTurnId(detail);
-    state.activeAnswerMode = 'firstTry';
   }
   renderRun(detail);
   if (detail && detail.id) {
@@ -2132,9 +2092,9 @@ function boot() {
   ['lastUpdated', 'monitorStatus', 'startMonitorButton',
     'stopMonitorButton', 'screenSelect', 'windowSelect', 'kindLabel', 'titleLabel', 'completenessLabel', 'readyLabel',
     'questionBody', 'screenshotWrap', 'screenshotGallery', 'answerView', 'hintsSection', 'hintsView',
-    'screenshotMeta', 'questionInputForm', 'questionInput', 'questionSubmitButton',
+    'screenshotMeta', 'questionInputForm', 'questionInput', 'audioInputSelect', 'questionSubmitButton',
     'answerTab', 'questionTab', 'answerPanel', 'questionPanel',
-    'answerTurnTabs', 'questionTurnTabs', 'answerModeTabs', 'firstTryAnswerTab', 'robustAnswerTab',
+    'answerTurnTabs', 'questionTurnTabs',
     'monitorMap', 'sourceGrid', 'applicationsSourceTab', 'screenSourceTab', 'devicesSourceTab',
     'captureButton', 'listenButton',
     'overlayToggle', 'overlayPanel', 'answerButton', 'themeToggle'].forEach(function (id) {
@@ -2144,15 +2104,17 @@ function boot() {
   if (!elements.lastUpdated || !elements.screenSelect || !elements.windowSelect || !elements.startMonitorButton
     || !elements.stopMonitorButton || !elements.overlayToggle || !elements.overlayPanel || !elements.answerButton
     || !elements.captureButton || !elements.listenButton || !elements.monitorStatus || !elements.answerView || !elements.hintsView
-    || !elements.answerModeTabs || !elements.firstTryAnswerTab || !elements.robustAnswerTab
     || !elements.answerTurnTabs || !elements.questionTurnTabs
     || !elements.sourceGrid || !elements.applicationsSourceTab || !elements.screenSourceTab || !elements.devicesSourceTab
-    || !elements.questionInputForm || !elements.questionInput || !elements.questionSubmitButton) {
+    || !elements.questionInputForm || !elements.questionInput || !elements.audioInputSelect || !elements.questionSubmitButton) {
     return;
   }
 
   applyTheme(storedTheme());
   state.nativeShell = new URLSearchParams(window.location.search).get('native') === '1';
+  state.audioInput = 'pc';
+  elements.audioInputSelect.value = state.audioInput;
+  renderListenButton();
   if (elements.themeToggle) {
     elements.themeToggle.addEventListener('click', toggleTheme);
   }
@@ -2191,6 +2153,10 @@ function boot() {
   elements.answerButton.addEventListener('click', requestAnswer);
   elements.captureButton.addEventListener('click', requestCapture);
   elements.listenButton.addEventListener('click', toggleListening);
+  elements.audioInputSelect.addEventListener('change', function () {
+    state.audioInput = currentAudioInput();
+    renderListenButton();
+  });
   elements.screenshotGallery.addEventListener('click', function (event) {
     var target = event.target;
     if (!target || !target.matches || !target.matches('.screenshot-delete')) {
@@ -2215,8 +2181,6 @@ function boot() {
   if (elements.questionTab) {
     elements.questionTab.addEventListener('click', function () { selectTab('question'); });
   }
-  elements.firstTryAnswerTab.addEventListener('click', function () { selectAnswerMode('firstTry'); });
-  elements.robustAnswerTab.addEventListener('click', function () { selectAnswerMode('robust'); });
   elements.overlayToggle.addEventListener('click', function () {
     if (state.nativeShell) {
       openSourcePicker();
@@ -2253,16 +2217,6 @@ function boot() {
     if (key === 'q') {
       event.preventDefault();
       selectTab('question');
-      return;
-    }
-    if (key === 'w') {
-      event.preventDefault();
-      selectAnswerMode('firstTry');
-      return;
-    }
-    if (key === 'e') {
-      event.preventDefault();
-      selectAnswerMode('robust');
       return;
     }
     if (key === 'f') {

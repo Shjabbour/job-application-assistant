@@ -12,6 +12,7 @@ import {
 } from "./applicationAnswers.js";
 import {
   getJobEvaluationDecisions,
+  getFollowUpActions,
   getJobs,
   getProfile,
   updateJob,
@@ -21,6 +22,7 @@ import {
   saveJobEvaluationProfiles,
   setActiveJobEvaluationProfile,
 } from "./jobEvaluation.js";
+import { sortFollowUpActions } from "./followUps.js";
 import {
   applyApplicationAnswersToQuestionBank,
   loadQuestionBank,
@@ -28,6 +30,7 @@ import {
 } from "./questionBank.js";
 import {
   JOB_STATUSES,
+  type FollowUpAction,
   type Job,
   type JobEvaluationDecision,
   type JobEvaluationDecisionRecord,
@@ -70,6 +73,7 @@ const KNOWN_ARTIFACT_PREFIXES = [
   "linkedin-autofill",
   "site-form-autofill",
   "site-form-review",
+  "gmail-follow-up-scan",
   "linkedin-job-descriptions",
   "persistent-job-enrichment",
   "linkedin-triage-results",
@@ -114,6 +118,11 @@ const AUTOMATION_MODULES = [
     key: "employerForm",
     label: "Employer Form Review",
     description: "Reviews or autofills employer-hosted application forms.",
+  },
+  {
+    key: "followUp",
+    label: "Follow-up Review",
+    description: "Reads post-application Gmail results and records next actions.",
   },
   {
     key: "other",
@@ -184,6 +193,13 @@ const ACTION_DEFINITIONS = [
     label: "Apply Saved Jobs",
     description: "Apply the saved local queue with parallel subprocesses, using visible Jobs Tracker items first and falling back to direct job pages.",
     commandPreview: "npm run cli -- browser start-full-autopilot",
+  },
+  {
+    id: "browser-review-follow-ups",
+    group: "Follow Up",
+    label: "Review Follow-up Emails",
+    description: "Scan Gmail for employer replies, classify each message, and update the local follow-up queue.",
+    commandPreview: "npm run cli -- browser review-follow-ups",
   },
 ] as const satisfies readonly DashboardActionDefinitionInput[];
 
@@ -401,6 +417,18 @@ type AutomationModuleSummary = {
   status: string;
 };
 
+type DashboardFollowUpSnapshot = {
+  totalCount: number;
+  openCount: number;
+  waitingCount: number;
+  highPriorityCount: number;
+  dueCount: number;
+  latestDetectedAt: string;
+  actions: FollowUpAction[];
+  openActions: FollowUpAction[];
+  waitingActions: FollowUpAction[];
+};
+
 type DashboardSnapshot = {
   generatedAt: string;
   autofillProfile: ProfileSummary;
@@ -417,7 +445,9 @@ type DashboardSnapshot = {
     workloadFilteredCount: number;
     browserArtifactCount: number;
     unresolvedQuestionCount: number;
+    openFollowUpCount: number;
   };
+  followUps: DashboardFollowUpSnapshot;
   automationBoardCounts: Record<AutomationStage, number>;
   sourceCounts: Array<{ source: string; count: number }>;
   jobs: DashboardJob[];
@@ -1204,6 +1234,8 @@ function buildBrowserCliArgs(
       return ["browser", "start-autopilot"];
     case "browser-start-full-autopilot":
       return ["browser", "start-full-autopilot"];
+    case "browser-review-follow-ups":
+      return ["browser", "review-follow-ups"];
     case "start-debug-browser":
       return [];
   }
@@ -1971,6 +2003,7 @@ async function buildDashboardSnapshot(): Promise<DashboardSnapshot> {
     questionBank,
     evaluationProfiles,
     evaluationDecisions,
+    followUpActions,
   ] = await Promise.all([
     getProfile(),
     getJobs(),
@@ -1979,6 +2012,7 @@ async function buildDashboardSnapshot(): Promise<DashboardSnapshot> {
     loadQuestionBank(),
     getJobEvaluationProfiles(),
     getJobEvaluationDecisions(),
+    getFollowUpActions(),
   ]);
 
   const duplicateUrlCounts = rawJobs.reduce((counts, job) => {
@@ -1994,6 +2028,7 @@ async function buildDashboardSnapshot(): Promise<DashboardSnapshot> {
     evaluationProfiles,
     evaluationDecisions,
   );
+  const followUps = buildDashboardFollowUpSnapshot(followUpActions);
   const evaluationDecisionsByUrl = evaluationDecisions.reduce((map, decision) => {
     if (decision.normalizedUrl) {
       map.set(decision.normalizedUrl, decision);
@@ -2043,8 +2078,10 @@ async function buildDashboardSnapshot(): Promise<DashboardSnapshot> {
       workloadFilteredCount: jobs.filter((job) => job.workloadFiltered).length,
       browserArtifactCount: browserArtifacts.length,
       unresolvedQuestionCount: answerCapture.unresolvedCount,
+      openFollowUpCount: followUps.openCount,
     },
     answerCapture,
+    followUps,
     automationBoardCounts,
     sourceCounts: [...sourceCountsMap.entries()]
       .map(([source, count]) => ({ source, count }))
@@ -2098,6 +2135,27 @@ function buildDashboardEvaluationSnapshot(
     savedDecisions: sortedDecisions.filter((decision) => decision.decision === "saved"),
     dismissedDecisions: sortedDecisions.filter((decision) => decision.decision === "dismissed"),
     skippedDecisions: sortedDecisions.filter((decision) => decision.decision === "skipped"),
+  };
+}
+
+function buildDashboardFollowUpSnapshot(actions: FollowUpAction[]): DashboardFollowUpSnapshot {
+  const sortedActions = [...actions].sort(sortFollowUpActions);
+  const openActions = sortedActions.filter((action) => action.status === "open");
+  const waitingActions = sortedActions.filter((action) => action.status === "waiting");
+  const now = Date.now();
+
+  return {
+    totalCount: sortedActions.length,
+    openCount: openActions.length,
+    waitingCount: waitingActions.length,
+    highPriorityCount: openActions.filter((action) => action.priority === "high").length,
+    dueCount: openActions.filter((action) => toTimestamp(action.dueAt) <= now).length,
+    latestDetectedAt: sortedActions
+      .map((action) => action.detectedAt || action.updatedAt || action.receivedAt)
+      .sort((left, right) => toTimestamp(right) - toTimestamp(left))[0] ?? "",
+    actions: sortedActions.slice(0, 80),
+    openActions: openActions.slice(0, 20),
+    waitingActions: waitingActions.slice(0, 12),
   };
 }
 
@@ -2532,6 +2590,10 @@ function resolveArtifactModule(prefix: string): AutomationModuleKey {
 
   if (prefix === "site-form-review" || prefix === "site-form-autofill") {
     return "employerForm";
+  }
+
+  if (prefix === "gmail-follow-up-scan") {
+    return "followUp";
   }
 
   if (

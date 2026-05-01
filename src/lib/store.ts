@@ -11,6 +11,11 @@ import {
 import type {
   ChatMessage,
   ExtractedJobDraft,
+  FollowUpAction,
+  FollowUpCategory,
+  FollowUpPriority,
+  FollowUpSource,
+  FollowUpStatus,
   HighPayingCompanyRecord,
   Job,
   JobEvaluationDecision,
@@ -29,6 +34,7 @@ const jobsPath = path.join(dataDir, "jobs.json");
 const conversationPath = path.join(dataDir, "conversation.json");
 const highPayingCompaniesPath = path.join(dataDir, "high-paying-companies.json");
 const jobEvaluationDecisionsPath = path.join(dataDir, "job-evaluation-decisions.json");
+const followUpsPath = path.join(dataDir, "follow-ups.json");
 
 const defaultProfile: Profile = {
   name: "",
@@ -98,6 +104,90 @@ function normalizeStringList(values: unknown): string[] {
   }
 
   return [...new Set(values.map((value) => (typeof value === "string" ? cleanRepeatedText(value) : "")).filter(Boolean))];
+}
+
+function normalizeFollowUpCategory(value: unknown): FollowUpCategory {
+  return [
+    "confirmation",
+    "status_update",
+    "action_required",
+    "assessment",
+    "interview",
+    "recruiter_reply",
+    "rejection",
+    "manual_follow_up",
+    "unknown",
+  ].includes(String(value))
+    ? (value as FollowUpCategory)
+    : "unknown";
+}
+
+function normalizeFollowUpStatus(value: unknown): FollowUpStatus {
+  return ["open", "waiting", "done", "closed"].includes(String(value))
+    ? (value as FollowUpStatus)
+    : "open";
+}
+
+function normalizeFollowUpPriority(value: unknown): FollowUpPriority {
+  return value === "high" || value === "medium" || value === "low" ? value : "medium";
+}
+
+function normalizeFollowUpSource(value: unknown): FollowUpSource {
+  return value === "tracker" ? "tracker" : "email";
+}
+
+function normalizeIsoLikeString(value: unknown, fallback: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    return fallback;
+  }
+
+  return value.trim();
+}
+
+function normalizeFollowUpAction(record: FollowUpAction): FollowUpAction {
+  const now = new Date().toISOString();
+  const source = normalizeFollowUpSource(record.source);
+  const category = normalizeFollowUpCategory(record.category);
+  const company = cleanRepeatedText(record.company) || "Unknown company";
+  const jobTitle = cleanRepeatedText(record.jobTitle) || "Unknown role";
+  const subject = cleanRepeatedText(record.subject) || "No subject";
+  const receivedAt = normalizeIsoLikeString(record.receivedAt, now);
+  const rawId = cleanRepeatedText(record.id);
+  const fallbackId = `${source}:${category}:${company}:${jobTitle}:${subject}:${receivedAt}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 96);
+
+  return {
+    id: rawId || fallbackId || `follow-up-${Date.now()}`,
+    source,
+    status: normalizeFollowUpStatus(record.status),
+    category,
+    priority: normalizeFollowUpPriority(record.priority),
+    ...(typeof record.jobId === "string" && record.jobId.trim() ? { jobId: record.jobId.trim() } : {}),
+    jobTitle,
+    company,
+    sender: cleanRepeatedText(record.sender) || "Unknown sender",
+    subject,
+    snippet: cleanRepeatedText(record.snippet),
+    receivedAt,
+    detectedAt: normalizeIsoLikeString(record.detectedAt, now),
+    updatedAt: normalizeIsoLikeString(record.updatedAt, now),
+    dueAt: normalizeIsoLikeString(record.dueAt, receivedAt),
+    nextAction: cleanRepeatedText(record.nextAction) || "Review this follow-up manually.",
+    evidence: normalizeStringList(record.evidence),
+    ...(typeof record.sourceUrl === "string" && record.sourceUrl.trim()
+      ? { sourceUrl: record.sourceUrl.trim() }
+      : {}),
+    ...(typeof record.searchQuery === "string" && record.searchQuery.trim()
+      ? { searchQuery: record.searchQuery.trim() }
+      : {}),
+    confidence:
+      typeof record.confidence === "number" && Number.isFinite(record.confidence)
+        ? Math.max(0, Math.min(100, Math.round(record.confidence)))
+        : 0,
+  };
 }
 
 function normalizeJobEvaluationDecision(
@@ -506,6 +596,57 @@ export async function appendConversation(message: ChatMessage): Promise<void> {
   const messages = await getConversation();
   messages.push(message);
   await writeJsonFile(conversationPath, messages);
+}
+
+export async function getFollowUpActions(): Promise<FollowUpAction[]> {
+  const saved = await readJsonFile<FollowUpAction[]>(followUpsPath, []);
+  return saved
+    .filter((action): action is FollowUpAction => Boolean(action && typeof action === "object"))
+    .map((action) => normalizeFollowUpAction(action))
+    .sort(
+      (left, right) =>
+        followUpStatusSort(left.status) - followUpStatusSort(right.status) ||
+        followUpPrioritySort(left.priority) - followUpPrioritySort(right.priority) ||
+        new Date(left.dueAt || left.receivedAt || 0).getTime() -
+          new Date(right.dueAt || right.receivedAt || 0).getTime(),
+    );
+}
+
+export async function saveFollowUpActions(actions: FollowUpAction[]): Promise<void> {
+  const normalized = actions
+    .map((action) => normalizeFollowUpAction(action))
+    .sort(
+      (left, right) =>
+        followUpStatusSort(left.status) - followUpStatusSort(right.status) ||
+        followUpPrioritySort(left.priority) - followUpPrioritySort(right.priority) ||
+        new Date(left.dueAt || left.receivedAt || 0).getTime() -
+          new Date(right.dueAt || right.receivedAt || 0).getTime(),
+    );
+  await writeJsonFile(followUpsPath, normalized);
+}
+
+function followUpStatusSort(status: FollowUpStatus): number {
+  switch (status) {
+    case "open":
+      return 0;
+    case "waiting":
+      return 1;
+    case "done":
+      return 2;
+    case "closed":
+      return 3;
+  }
+}
+
+function followUpPrioritySort(priority: FollowUpPriority): number {
+  switch (priority) {
+    case "high":
+      return 0;
+    case "medium":
+      return 1;
+    case "low":
+      return 2;
+  }
 }
 
 export async function getHighPayingCompanies(): Promise<HighPayingCompanyRecord[]> {

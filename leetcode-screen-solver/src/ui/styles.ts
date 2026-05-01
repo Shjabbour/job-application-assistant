@@ -387,16 +387,6 @@ textarea {
   padding: 0;
 }
 
-.answer-mode-tabs {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: stretch;
-  gap: 0;
-  padding: 4px;
-  border-bottom: 1px solid var(--border);
-  background: #f8fafb;
-}
-
 .turn-tabs {
   flex: 0 0 auto;
   display: flex;
@@ -443,39 +433,6 @@ textarea {
   border-radius: 999px;
   background: var(--amber);
   vertical-align: 1px;
-}
-
-.answer-mode-button {
-  min-height: 32px;
-  min-width: 118px;
-  border: 1px solid var(--border);
-  border-right: 0;
-  background: #ffffff;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 0 12px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.answer-mode-button:first-child {
-  border-radius: 5px 0 0 5px;
-}
-
-.answer-mode-button:last-child {
-  border-right: 1px solid var(--border);
-  border-radius: 0 5px 5px 0;
-}
-
-.answer-mode-button:hover {
-  color: var(--text);
-  background: #f4f8f8;
-}
-
-.answer-mode-button.active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
 }
 
 .hints-markdown {
@@ -724,27 +681,40 @@ textarea {
 .question-input {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 92px 86px;
+  grid-template-columns: minmax(0, 1fr) 118px 92px 86px;
   gap: 8px;
   padding: 10px;
   border-top: 1px solid var(--border);
   background: #f8fafb;
 }
 
-.question-input textarea {
+.question-input textarea,
+.question-input select {
   width: 100%;
-  min-height: 70px;
-  max-height: 180px;
-  resize: vertical;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #ffffff;
   color: var(--text);
+}
+
+.question-input textarea {
+  min-height: 70px;
+  max-height: 180px;
+  resize: vertical;
   padding: 10px 12px;
   line-height: 1.45;
 }
 
-.question-input textarea:focus {
+.question-input select {
+  min-height: 34px;
+  align-self: stretch;
+  padding: 0 9px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.question-input textarea:focus,
+.question-input select:focus {
   outline: 2px solid var(--accent-line);
   outline-offset: 1px;
 }
@@ -1239,7 +1209,6 @@ textarea {
 
 :root:not([data-theme="light"]) .runs-pane,
 :root:not([data-theme="light"]) .monitor-panel,
-:root:not([data-theme="light"]) .answer-mode-tabs,
 :root:not([data-theme="light"]) .turn-tabs,
 :root:not([data-theme="light"]) .question-input,
 :root:not([data-theme="light"]) .top-bar,
@@ -1248,6 +1217,7 @@ textarea {
 :root:not([data-theme="light"]) .overlay-toggle,
 :root:not([data-theme="light"]) .field select,
 :root:not([data-theme="light"]) .question-input textarea,
+:root:not([data-theme="light"]) .question-input select,
 :root:not([data-theme="light"]) .answer-summary,
 :root:not([data-theme="light"]) .hints-section,
 :root:not([data-theme="light"]) .hints-markdown {
@@ -1266,8 +1236,8 @@ textarea {
 :root:not([data-theme="light"]) .overlay-toggle,
 :root:not([data-theme="light"]) .field select,
 :root:not([data-theme="light"]) .question-input textarea,
+:root:not([data-theme="light"]) .question-input select,
 :root:not([data-theme="light"]) .turn-tab-button,
-:root:not([data-theme="light"]) .answer-mode-button,
 :root:not([data-theme="light"]) .section-chip,
 :root:not([data-theme="light"]) .monitor-tile {
   border-color: var(--border);
@@ -1285,25 +1255,21 @@ textarea {
 }
 
 :root:not([data-theme="light"]) .tab-button,
-:root:not([data-theme="light"]) .turn-tab-button,
-:root:not([data-theme="light"]) .answer-mode-button {
+:root:not([data-theme="light"]) .turn-tab-button {
   color: var(--muted);
 }
 
 :root:not([data-theme="light"]) .tab-button:hover,
-:root:not([data-theme="light"]) .turn-tab-button:hover,
-:root:not([data-theme="light"]) .answer-mode-button:hover {
+:root:not([data-theme="light"]) .turn-tab-button:hover {
   background: var(--soft-row);
   color: var(--text);
 }
 
-:root:not([data-theme="light"]) .turn-tab-button,
-:root:not([data-theme="light"]) .answer-mode-button {
+:root:not([data-theme="light"]) .turn-tab-button {
   background: var(--panel);
 }
 
 :root:not([data-theme="light"]) .turn-tab-button.active,
-:root:not([data-theme="light"]) .answer-mode-button.active,
 :root:not([data-theme="light"]) .display-button.active,
 :root:not([data-theme="light"]) .run-item.active,
 :root:not([data-theme="light"]) .monitor-tile.active {
@@ -1427,11 +1393,6 @@ textarea {
 
   .tab-button {
     min-width: 96px;
-  }
-
-  .answer-mode-button {
-    flex: 1 1 0;
-    min-width: 0;
   }
 
   .monitor-dock {

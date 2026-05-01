@@ -61,10 +61,6 @@ __CSS__
       <div class="content-stack">
         <section id="answerPanel" class="answer-pane" role="tabpanel" aria-labelledby="answerTab">
           <div id="answerTurnTabs" class="turn-tabs hidden" role="tablist" aria-label="Answer turns"></div>
-          <div id="answerModeTabs" class="answer-mode-tabs hidden" role="tablist" aria-label="Answer walkthroughs">
-            <button id="firstTryAnswerTab" class="answer-mode-button active" type="button" role="tab" aria-selected="true" aria-controls="answerView" title="Switch to First Try walkthrough (W)">First Try (W)</button>
-            <button id="robustAnswerTab" class="answer-mode-button" type="button" role="tab" aria-selected="false" aria-controls="answerView" title="Switch to Robust walkthrough (E)">Robust (E)</button>
-          </div>
           <div id="answerView" class="markdown answer-markdown">Solution will appear after the question is ready.</div>
           <section id="hintsSection" class="hints-section hidden">
             <h2>Hints</h2>
@@ -81,6 +77,10 @@ __CSS__
           <div id="questionBody" class="markdown empty">Capture a screen, listen, or type the question.</div>
           <form id="questionInputForm" class="question-input" autocomplete="off">
             <textarea id="questionInput" rows="3" placeholder="Type or dictate the question"></textarea>
+            <select id="audioInputSelect" aria-label="Voice input source" title="Voice input source">
+              <option value="pc">PC audio</option>
+              <option value="microphone">Microphone</option>
+            </select>
             <button id="listenButton" class="small-button" type="button" aria-pressed="false" title="Dictate into the text box (L)">Listen (L)</button>
             <button id="questionSubmitButton" class="small-button" type="submit" title="Send question text (Ctrl+Enter)">Send (Ctrl+Enter)</button>
           </form>

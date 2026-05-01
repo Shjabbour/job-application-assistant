@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { normalizeDictationInput, recognizeSpeechOnce } from "./dictation.js";
 import type { QuestionState } from "./types.js";
 
 export interface TranscriptPayload {
@@ -49,6 +50,10 @@ __CSS__
           <h1>Interview Coder</h1>
         </div>
           <div class="actions">
+            <select id="audioInputSelect" aria-label="Voice input source" title="Voice input source">
+              <option value="pc">PC audio</option>
+              <option value="microphone">Microphone</option>
+            </select>
             <button id="listenButton" type="button">Capture Voice</button>
             <button id="stopButton" type="button" disabled>Stop</button>
             <button id="answerButton" type="button">Generate</button>
@@ -136,6 +141,7 @@ body {
 }
 
 button,
+select,
 input,
 textarea {
   font: inherit;
@@ -188,13 +194,17 @@ textarea {
   gap: 8px;
 }
 
-button {
+button,
+select {
   min-height: 36px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--panel);
   color: var(--text);
   padding: 0 12px;
+}
+
+button {
   cursor: pointer;
 }
 
@@ -350,8 +360,9 @@ button.active,
 }`;
 
 const JS = String.raw`var state = {
-  recognition: null,
   listening: false,
+  audioInput: 'pc',
+  dictationRunning: false,
   answering: false,
   answerPrompt: ''
 };
@@ -362,8 +373,19 @@ function byId(id) {
   return document.getElementById(id);
 }
 
-function recognitionCtor() {
-  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+function normalizeAudioInput(value) {
+  return value === 'microphone' ? 'microphone' : 'pc';
+}
+
+function audioInputLabel(input) {
+  return normalizeAudioInput(input) === 'microphone' ? 'microphone' : 'PC audio';
+}
+
+function currentAudioInput() {
+  if (elements.audioInputSelect) {
+    return normalizeAudioInput(elements.audioInputSelect.value);
+  }
+  return normalizeAudioInput(state.audioInput);
 }
 
 function setConnection(text) {
@@ -375,6 +397,9 @@ function setListening(active) {
   elements.listenButton.disabled = active;
   elements.stopButton.disabled = !active;
   elements.listenButton.classList.toggle('active', active);
+  if (elements.audioInputSelect) {
+    elements.audioInputSelect.disabled = active;
+  }
 }
 
 async function postTranscript(text) {
@@ -394,58 +419,69 @@ async function postTranscript(text) {
   await renderStatus(await response.json());
 }
 
-function startListening() {
-  var Recognition = recognitionCtor();
-  if (!Recognition) {
-    elements.statusLine.textContent = 'Browser speech recognition is not available. Paste the prompt below.';
+async function requestDictationOnce(input) {
+  var response = await fetch('/api/dictation/once', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timeoutMs: 8000, input: normalizeAudioInput(input) })
+  });
+  if (!response.ok) {
+    var errorText = await response.text();
+    throw new Error(errorText || 'HTTP ' + response.status);
+  }
+  return response.json();
+}
+
+async function dictationLoop() {
+  if (state.dictationRunning) {
     return;
   }
 
-  stopListening();
-  var recognition = new Recognition();
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  recognition.lang = 'en-US';
-
-  recognition.onresult = function (event) {
-    var finalText = '';
-    for (var index = event.resultIndex; index < event.results.length; index += 1) {
-      var result = event.results[index];
-      if (result.isFinal && result[0] && result[0].transcript) {
-        finalText += result[0].transcript + ' ';
+  state.dictationRunning = true;
+  var input = normalizeAudioInput(state.audioInput);
+  var label = audioInputLabel(input);
+  var emptyCount = 0;
+  try {
+    while (state.listening) {
+      elements.statusLine.textContent = emptyCount
+        ? 'Listening to ' + label + '...'
+        : (input === 'microphone' ? 'Starting microphone dictation...' : 'Starting PC audio listen...');
+      try {
+        var result = await requestDictationOnce(input);
+        if (!state.listening) {
+          break;
+        }
+        var text = result && typeof result.text === 'string' ? result.text.trim() : '';
+        if (text) {
+          emptyCount = 0;
+          elements.statusLine.textContent = 'Captured voice from ' + label + '.';
+          await postTranscript(text);
+        } else {
+          emptyCount += 1;
+          elements.statusLine.textContent = 'Listening to ' + label + '...';
+        }
+      } catch (error) {
+        if (state.listening) {
+          elements.statusLine.textContent = error.message || String(error);
+          stopListening();
+        }
+        break;
       }
     }
+  } finally {
+    state.dictationRunning = false;
+  }
+}
 
-    if (finalText.trim()) {
-      postTranscript(finalText).catch(function (error) {
-        elements.statusLine.textContent = error.message || String(error);
-      });
-    }
-  };
-
-  recognition.onerror = function (event) {
-    elements.statusLine.textContent = event.error || 'Speech recognition error';
-  };
-
-  recognition.onend = function () {
-    if (state.listening) {
-      recognition.start();
-    }
-  };
-
-  state.recognition = recognition;
-  state.listening = true;
-  recognition.start();
+function startListening() {
+  stopListening();
+  state.audioInput = currentAudioInput();
   setListening(true);
+  dictationLoop();
 }
 
 function stopListening() {
   state.listening = false;
-  if (state.recognition) {
-    state.recognition.onend = null;
-    state.recognition.stop();
-    state.recognition = null;
-  }
   setListening(false);
 }
 
@@ -520,7 +556,9 @@ async function renderStatus(data) {
   var renderedQuestion = questionText(data);
   elements.kindLabel.textContent = question.kind || 'question';
   elements.titleLabel.textContent = question.title || (question.prompt ? question.prompt.slice(0, 90) : 'No question captured yet');
+  if (!state.listening) {
     elements.statusLine.textContent = data.lastError || (data.lastTranscript ? 'Last transcript: ' + data.lastTranscript : 'Ready to capture a prompt.');
+  }
   elements.readyLabel.textContent = data.state.readyToAnswer ? 'Ready' : 'Capturing';
   elements.readyLabel.style.color = data.state.readyToAnswer ? 'var(--accent)' : 'var(--amber)';
   elements.processingLabel.textContent = data.processing ? 'Processing' : 'Idle';
@@ -551,14 +589,19 @@ async function pollStatus() {
 }
 
 function boot() {
-  ['connection', 'listenButton', 'stopButton', 'answerButton', 'copyButton', 'resetButton', 'autoAnswer',
+  ['connection', 'audioInputSelect', 'listenButton', 'stopButton', 'answerButton', 'copyButton', 'resetButton', 'autoAnswer',
     'kindLabel', 'titleLabel', 'statusLine', 'meterFill', 'readyLabel', 'questionText',
     'answerLabel', 'answerText', 'processingLabel', 'transcriptText', 'manualText', 'addTextButton'].forEach(function (id) {
     elements[id] = byId(id);
   });
 
+  state.audioInput = 'pc';
+  elements.audioInputSelect.value = state.audioInput;
   elements.listenButton.addEventListener('click', startListening);
   elements.stopButton.addEventListener('click', stopListening);
+  elements.audioInputSelect.addEventListener('change', function () {
+    state.audioInput = currentAudioInput();
+  });
   elements.answerButton.addEventListener('click', postAnswer);
   elements.copyButton.addEventListener('click', copyPrompt);
   elements.resetButton.addEventListener('click', function () {
@@ -628,6 +671,14 @@ function createRequestHandler(options: ListenServerOptions): (req: IncomingMessa
 
       if (req.method === "GET" && requestUrl.pathname === "/api/status") {
         sendJson(res, 200, await options.getStatus());
+        return;
+      }
+
+      if (req.method === "POST" && requestUrl.pathname === "/api/dictation/once") {
+        const body = JSON.parse((await readBody(req, 1024 * 1024)).toString("utf8")) as Record<string, unknown>;
+        const timeoutMs = Number(body.timeoutMs);
+        const input = normalizeDictationInput(body.input);
+        sendJson(res, 200, await recognizeSpeechOnce(Number.isFinite(timeoutMs) ? timeoutMs : 8000, input));
         return;
       }
 

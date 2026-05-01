@@ -24,6 +24,7 @@ const PRIMARY_ACTION_IDS = [
   "browser-review-linkedin-attached",
   "browser-auto-apply-attached-current",
   "browser-start-full-autopilot",
+  "browser-review-follow-ups",
 ];
 
 const LINKEDIN_REMOTE_JOBS_URL = "https://www.linkedin.com/jobs/collections/remote-jobs/";
@@ -100,6 +101,7 @@ const elements = {
   questionCapturePanel: document.getElementById("questionCapturePanel"),
   artifactPanel: document.getElementById("artifactPanel"),
   companyPanel: document.getElementById("companyPanel"),
+  followUpPanel: document.getElementById("followUpPanel"),
   themeToggle: document.getElementById("themeToggle"),
 };
 
@@ -532,10 +534,7 @@ function buildEvaluationInsights(snapshot) {
       Number(evaluationSnapshot.stats?.skippedCount) ||
       decisions.filter((decision) => decision.decision === "skipped" || decision.action === "skipped").length,
     profileNamesSeen,
-    latestDecision:
-      (Array.isArray(evaluationSnapshot.recentDecisions) ? evaluationSnapshot.recentDecisions[0] : null) ||
-      decisions[0] ||
-      null,
+    latestDecision: decisions[0] || null,
     savedQueue,
     evaluatedSavedJobs,
     missingSavedJobs,
@@ -1297,6 +1296,7 @@ function renderAll() {
   renderAnswerCapture();
   renderModules();
   renderExternalApply();
+  renderFollowUps();
 }
 
 function setDashboardStatus() {
@@ -1357,12 +1357,12 @@ function renderSummary() {
   }
 
   const evaluationInsights = buildEvaluationInsights(state.snapshot);
-  const { autofillProfile, answerCapture, actionRunner } = state.snapshot;
+  const { autofillProfile, answerCapture, actionRunner, followUps } = state.snapshot;
   const cards = [
     {
       label: "Workflow",
-      value: "Remote Jobs -> Tracker",
-      context: "Save or dismiss on LinkedIn Remote Jobs, then apply only from LinkedIn Jobs Tracker.",
+      value: "Remote -> Tracker -> Email",
+      context: "Save matching roles, apply the saved queue, then review inbox follow-ups.",
       tone: "queue",
     },
     {
@@ -1394,6 +1394,16 @@ function renderSummary() {
         ? `${answerCapture.unresolvedCount} unanswered question${answerCapture.unresolvedCount === 1 ? "" : "s"} still need review`
         : `${answerCapture.answeredCount} saved answer${answerCapture.answeredCount === 1 ? "" : "s"} captured`,
       tone: "profile",
+    },
+    {
+      label: "Follow-ups",
+      value: String(followUps?.openCount || 0),
+      context: followUps?.openCount
+        ? `${followUps.highPriorityCount || 0} high priority and ${followUps.dueCount || 0} due now`
+        : followUps?.waitingCount
+          ? `${followUps.waitingCount} waiting item${followUps.waitingCount === 1 ? "" : "s"} logged`
+          : "Run the email review lane after applying.",
+      tone: "ready",
     },
   ];
 
@@ -1480,6 +1490,7 @@ function renderWorkspaceGuide() {
   const queuedJobs = state.snapshot.jobs.filter((job) => job.automationStage !== "filed").length;
   const appliedJobs = state.snapshot.jobs.filter((job) => job.automationStage === "filed").length;
   const evaluationInsights = buildEvaluationInsights(state.snapshot);
+  const followUps = state.snapshot.followUps || {};
   const remoteJobsHref = escapeAttribute(LINKEDIN_REMOTE_JOBS_URL);
   const trackerHref = escapeAttribute(LINKEDIN_JOBS_TRACKER_URL);
 
@@ -1487,12 +1498,12 @@ function renderWorkspaceGuide() {
     <div class="section-head">
       <div>
         <p class="eyebrow">Operating lane</p>
-        <h2>Two automations: save from Remote Jobs, then apply from your saved queue</h2>
+        <h2>Three lanes: save, apply, then review follow-ups</h2>
       </div>
       <p class="section-note">${escapeHtml(
         activeRun
           ? `Runner active: ${activeRun.label}`
-          : "Run the save lane against LinkedIn Remote Jobs, then run the apply lane against your saved queue.",
+          : "Run the save lane, run the apply lane, then scan Gmail for replies and required next steps.",
       )}</p>
     </div>
 
@@ -1532,6 +1543,23 @@ function renderWorkspaceGuide() {
           <div class="guide-action-row">
             <a class="action-button" href="${trackerHref}" target="_blank" rel="noreferrer">Open Jobs Tracker</a>
             <button class="ghost-button" type="button" data-guide-run-action="browser-start-full-autopilot"${activeRun ? " disabled" : ""}>Apply Saved Jobs</button>
+          </div>
+        </article>
+
+        <article class="guide-card">
+          <p class="stat-label">Step 3</p>
+          <p class="guide-value">Review Follow-ups</p>
+          <p class="guide-context">${escapeHtml(
+            "Scan Gmail for employer confirmations, rejections, assessments, interview requests, and manual follow-up deadlines.",
+          )}</p>
+          <div class="chip-row">
+            <span class="chip">Gmail</span>
+            <span class="chip">${escapeHtml(followUps.openCount ? `${followUps.openCount} open` : "No open actions")}</span>
+            ${followUps.highPriorityCount ? `<span class="chip is-alert">${escapeHtml(`${followUps.highPriorityCount} urgent`)}</span>` : ""}
+          </div>
+          <div class="guide-action-row">
+            <a class="action-button" href="https://mail.google.com/mail/u/0/#inbox" target="_blank" rel="noreferrer">Open Gmail</a>
+            <button class="ghost-button" type="button" data-guide-run-action="browser-review-follow-ups"${activeRun ? " disabled" : ""}>Review Follow-ups</button>
           </div>
         </article>
       </div>
@@ -1652,6 +1680,7 @@ function renderSupportOverview() {
   const latestArtifact = state.snapshot.recentBrowserArtifacts[0];
   const activeModules = state.snapshot.automationModules.filter((module) => module.fileCount > 0).length;
   const answerReview = state.snapshot.answerCapture;
+  const followUps = state.snapshot.followUps || {};
   const cards = [
     {
       href: "#activityPanel",
@@ -1679,6 +1708,17 @@ function renderSupportOverview() {
         (state.snapshot.evaluation?.stats?.trackedCount || evaluationInsights.decisions.length) > 0
           ? `${evaluationInsights.savedDecisionCount} saved, ${evaluationInsights.dismissedDecisionCount} dismissed, ${evaluationInsights.skippedDecisionCount} skipped.`
           : "No save-lane decisions have been tracked yet.",
+      tone: "ready",
+    },
+    {
+      href: "#followUpPanel",
+      label: "Follow-up emails",
+      value: String(followUps.openCount || 0),
+      context: followUps.openCount
+        ? `${followUps.highPriorityCount || 0} high priority, ${followUps.dueCount || 0} due now, ${followUps.waitingCount || 0} waiting.`
+        : followUps.latestDetectedAt
+          ? `Latest email review ran ${formatDateTime(followUps.latestDetectedAt)}.`
+          : "Run the follow-up lane after applying jobs.",
       tone: "ready",
     },
     {
@@ -2168,16 +2208,18 @@ function renderActions() {
   const setupAction = primaryActions.find((action) => action.id === "start-debug-browser");
   const saveAction = primaryActions.find((action) => action.id === "browser-save-remote-jobs");
   const applyAction = primaryActions.find((action) => action.id === "browser-start-full-autopilot");
+  const followAction = primaryActions.find((action) => action.id === "browser-review-follow-ups");
   const totalAppliedJobs = state.snapshot.jobs.filter((job) => job.automationStage === "filed").length;
+  const followUps = state.snapshot.followUps || {};
 
   elements.actionPanel.innerHTML = `
     <div class="section-head">
       <div>
         <p class="eyebrow">Automation</p>
-        <h2>Two automation lanes</h2>
+        <h2>Application lanes</h2>
       </div>
       <p class="section-note">${escapeHtml(
-        "This dashboard only promotes setup plus the two lanes: save from LinkedIn Remote Jobs, then apply from LinkedIn Jobs Tracker.",
+        "This dashboard promotes setup plus the three recurring lanes: save jobs, apply jobs, and review follow-up emails.",
       )}</p>
     </div>
 
@@ -2213,6 +2255,15 @@ function renderActions() {
         <p class="action-status-value">${escapeHtml(String(totalAppliedJobs))}</p>
         <p class="stat-context">${escapeHtml(`Job${totalAppliedJobs === 1 ? "" : "s"} already marked filed`)}</p>
       </article>
+      <article class="action-status-card">
+        <p class="stat-label">Follow-ups</p>
+        <p class="action-status-value">${escapeHtml(String(followUps.openCount || 0))}</p>
+        <p class="stat-context">${escapeHtml(
+          followUps.openCount
+            ? `${followUps.highPriorityCount || 0} high priority; ${followUps.dueCount || 0} due now`
+            : "No open email actions logged",
+        )}</p>
+      </article>
     </div>
 
     <div class="action-layout">
@@ -2221,7 +2272,7 @@ function renderActions() {
           <div class="console-section-head">
             <div>
               <h3>Primary actions</h3>
-              <p class="timeline-detail">Only setup plus the two lane controls are promoted here. Everything else stays in the detailed job views.</p>
+              <p class="timeline-detail">Setup and the recurring lane controls are promoted here. Job-specific tools stay in the detailed views.</p>
             </div>
             <span class="chip">${escapeHtml(String(primaryActions.length))}</span>
           </div>
@@ -2266,6 +2317,20 @@ function renderActions() {
                 </div>
                 <p class="recommended-action-note">${escapeHtml(setupAction.commandPreview)}</p>
                 <button class="action-button" type="button" data-action-run="${escapeHtml(setupAction.id)}" ${activeRun ? "disabled" : ""}>${escapeHtml(setupAction.label)}</button>
+              </article>
+            ` : ""}
+            ${followAction ? `
+              <article class="recommended-action-card">
+                <div class="recommended-action-head">
+                  <div>
+                    <p class="mini-eyebrow">Lane 3</p>
+                    <p class="list-title">${escapeHtml(followAction.label)}</p>
+                    <p class="timeline-detail">${escapeHtml(followAction.description)}</p>
+                  </div>
+                  <span class="chip">${escapeHtml(followAction.group)}</span>
+                </div>
+                <p class="recommended-action-note">${escapeHtml(followAction.commandPreview)}</p>
+                <button class="action-button" type="button" data-action-run="${escapeHtml(followAction.id)}" ${activeRun ? "disabled" : ""}>${escapeHtml(followAction.label)}</button>
               </article>
             ` : ""}
           </div>
@@ -3470,6 +3535,141 @@ function renderExternalApplyItem(job) {
   `;
 }
 
+function renderFollowUps() {
+  if (!state.snapshot || !elements.followUpPanel) {
+    return;
+  }
+
+  const followUps = state.snapshot.followUps || {
+    openActions: [],
+    waitingActions: [],
+    openCount: 0,
+    waitingCount: 0,
+    highPriorityCount: 0,
+    dueCount: 0,
+    latestDetectedAt: "",
+  };
+  const activeRun = state.snapshot.actionRunner.activeRun;
+  const openActions = Array.isArray(followUps.openActions) ? followUps.openActions.slice(0, 10) : [];
+  const waitingActions = Array.isArray(followUps.waitingActions) ? followUps.waitingActions.slice(0, 6) : [];
+
+  elements.followUpPanel.innerHTML = `
+    ${renderSubpanelHead("Follow-ups", "Email actions after applying", `${followUps.openCount || 0} open`)}
+
+    <div class="metric-row">
+      <div class="metric-pill">
+        <span>High priority</span>
+        <strong>${escapeHtml(String(followUps.highPriorityCount || 0))}</strong>
+      </div>
+      <div class="metric-pill">
+        <span>Due now</span>
+        <strong>${escapeHtml(String(followUps.dueCount || 0))}</strong>
+      </div>
+      <div class="metric-pill">
+        <span>Waiting</span>
+        <strong>${escapeHtml(String(followUps.waitingCount || 0))}</strong>
+      </div>
+    </div>
+
+    <section class="detail-section">
+      <div class="console-section-head">
+        <div>
+          <h3>Review inbox</h3>
+          <p class="timeline-detail">${escapeHtml(
+            followUps.latestDetectedAt
+              ? `Latest scan: ${formatDateTime(followUps.latestDetectedAt)}`
+              : "Run the follow-up lane after an apply batch to classify employer emails.",
+          )}</p>
+        </div>
+        <button class="action-button" type="button" data-action-run="browser-review-follow-ups" ${activeRun ? "disabled" : ""}>Review Follow-ups</button>
+      </div>
+      <p class="timeline-detail">The scan looks for confirmations, rejections, assessments, interview requests, recruiter replies, and manual follow-up deadlines from applied jobs.</p>
+    </section>
+
+    <section class="detail-section">
+      <div class="console-section-head">
+        <div>
+          <h3>Open actions</h3>
+          <p class="timeline-detail">These need a reply, an assessment, a portal check, or a manual follow-up.</p>
+        </div>
+        <span class="chip ${followUps.highPriorityCount ? "is-alert" : ""}">${escapeHtml(String(openActions.length))}</span>
+      </div>
+      ${
+        openActions.length === 0
+          ? renderEmptyState({
+            eyebrow: "No open follow-ups",
+            title: "No email follow-up needs action right now",
+            body: "Run the review lane again after a new apply batch or when new employer emails land.",
+            tone: "calm",
+            actions: [
+              { label: "Open controls", href: "#actionPanel", variant: "primary" },
+              { label: "Open Gmail", href: "https://mail.google.com/mail/u/0/#inbox" },
+            ],
+          })
+          : `<ul class="panel-list panel-scroll">${openActions.map(renderFollowUpActionItem).join("")}</ul>`
+      }
+    </section>
+
+    ${
+      waitingActions.length > 0
+        ? `
+          <section class="detail-section">
+            <div class="console-section-head">
+              <div>
+                <h3>Waiting log</h3>
+                <p class="timeline-detail">Confirmations and status emails that do not need immediate action.</p>
+              </div>
+              <span class="chip">${escapeHtml(String(waitingActions.length))}</span>
+            </div>
+            <ul class="panel-list panel-scroll">${waitingActions.map(renderFollowUpActionItem).join("")}</ul>
+          </section>
+        `
+        : ""
+    }
+  `;
+
+  elements.followUpPanel.querySelectorAll("[data-action-run]").forEach((button) => {
+    button.addEventListener("click", () => {
+      void runDashboardAction(button.getAttribute("data-action-run"));
+    });
+  });
+  bindDashboardIntents(elements.followUpPanel);
+}
+
+function renderFollowUpActionItem(action) {
+  const toneClass = action.priority === "high" ? "is-alert" : action.status === "waiting" ? "is-accent" : "";
+  const source = action.source === "tracker" ? "Tracker" : "Email";
+  const subject = action.subject || "No subject";
+
+  return `
+    <li class="list-item compact-item">
+      <div class="list-head">
+        <div>
+          <p class="list-title">${escapeHtml(action.jobTitle || "Unknown role")}</p>
+          <p class="timeline-detail">${escapeHtml(action.company || "Unknown company")}</p>
+        </div>
+        <span class="chip ${toneClass}">${escapeHtml(formatFollowUpCategory(action.category || "unknown"))}</span>
+      </div>
+      <p class="timeline-detail">${escapeHtml(action.nextAction || "Review this follow-up manually.")}</p>
+      <p class="list-meta">${escapeHtml(subject)}</p>
+      <div class="chip-row">
+        <span class="chip ${toneClass}">${escapeHtml(capitalize(action.priority || "medium"))}</span>
+        <span class="chip">${escapeHtml(source)}</span>
+        <span class="chip">${escapeHtml(action.dueAt ? `Due ${formatDate(action.dueAt)}` : "No due date")}</span>
+        ${Number.isFinite(Number(action.confidence)) ? `<span class="chip">${escapeHtml(`${Number(action.confidence)}% match`)}</span>` : ""}
+      </div>
+    </li>
+  `;
+}
+
+function formatFollowUpCategory(value) {
+  return cleanText(value)
+    .split("_")
+    .filter(Boolean)
+    .map((part) => capitalize(part))
+    .join(" ") || "Unknown";
+}
+
 function renderSubpanelHead(eyebrow, title, meta = "") {
   return `
     <div class="subpanel-head">
@@ -4318,6 +4518,8 @@ function getRecommendationOutcome(item) {
       return "Expected result: the Remote Jobs save automation runs as a batch against LinkedIn listings.";
     case "browser-start-full-autopilot":
       return "Expected result: the LinkedIn Jobs Tracker apply batch runs against saved jobs only.";
+    case "browser-review-follow-ups":
+      return "Expected result: Gmail follow-up emails are classified and the local next-action queue is refreshed.";
     default:
       return "Expected result: this action advances the current filing lane without needing the terminal.";
   }

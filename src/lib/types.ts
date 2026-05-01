@@ -44,6 +44,63 @@ export type Job = {
   evaluation?: JobEvaluationSnapshot;
 };
 
+export const FOLLOW_UP_CATEGORIES = [
+  "confirmation",
+  "status_update",
+  "action_required",
+  "assessment",
+  "interview",
+  "recruiter_reply",
+  "rejection",
+  "manual_follow_up",
+  "unknown",
+] as const;
+
+export type FollowUpCategory = (typeof FOLLOW_UP_CATEGORIES)[number];
+
+export const FOLLOW_UP_STATUSES = ["open", "waiting", "done", "closed"] as const;
+
+export type FollowUpStatus = (typeof FOLLOW_UP_STATUSES)[number];
+
+export type FollowUpPriority = "high" | "medium" | "low";
+
+export type FollowUpSource = "email" | "tracker";
+
+export type FollowUpEmailCandidate = {
+  sender: string;
+  subject: string;
+  snippet: string;
+  bodyText?: string;
+  receivedAt: string;
+  sourceUrl: string;
+  accountIndex: number;
+  searchQuery: string;
+  detectedAt: string;
+};
+
+export type FollowUpAction = {
+  id: string;
+  source: FollowUpSource;
+  status: FollowUpStatus;
+  category: FollowUpCategory;
+  priority: FollowUpPriority;
+  jobId?: string;
+  jobTitle: string;
+  company: string;
+  sender: string;
+  subject: string;
+  snippet: string;
+  receivedAt: string;
+  detectedAt: string;
+  updatedAt: string;
+  dueAt: string;
+  nextAction: string;
+  evidence: string[];
+  sourceUrl?: string;
+  searchQuery?: string;
+  confidence: number;
+};
+
 export type ExtractedJobDraft = {
   title: string;
   company: string;

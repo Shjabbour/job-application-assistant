@@ -49,11 +49,17 @@ import {
   reviewCurrentSiteForm,
   reviewSiteFormUrl,
   reviewCurrentLinkedInApplication,
+  scanAttachedGmailFollowUpEmails,
   screenPersistentLinkedInJobs,
   screenAttachedLinkedInJobs,
   triageAttachedVisibleJobs,
 } from "./lib/browser.js";
 import { suggestFormAnswer } from "./lib/formAnswers.js";
+import {
+  applyFollowUpActionsToJobs,
+  reconcileFollowUpActions,
+  sortFollowUpActions,
+} from "./lib/followUps.js";
 import {
   evaluateJobAgainstProfile,
   getJobEvaluationProfile,
@@ -72,14 +78,16 @@ import {
   addJobsFromCollection,
   appendConversation,
   dedupeSavedJobs,
+  getFollowUpActions,
   getJobs,
   recordHighPayingCompany,
   recordJobEvaluationDecision,
   getProfile,
+  saveFollowUpActions,
   saveJobs,
   saveProfile,
 } from "./lib/store.js";
-import type { Job, JobCollectionItem, JobEnrichmentResult, Profile } from "./lib/types.js";
+import type { FollowUpAction, Job, JobCollectionItem, JobEnrichmentResult, Profile } from "./lib/types.js";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -2899,6 +2907,176 @@ async function browserSaveApplicationAnswerInteractive(rl: readline.Interface): 
   await saveApplicationAnswer(bucketInput, pattern, value);
 }
 
+type FollowUpReviewOptions = {
+  days: number;
+  limit: number;
+  accountCount: number;
+  query: string;
+  readBodies: boolean;
+  updateStatuses: boolean;
+  includeStaleApplications: boolean;
+  staleApplicationLimit: number;
+  followUpAfterDays: number;
+};
+
+function parseFollowUpReviewOptions(args: string[] = []): FollowUpReviewOptions {
+  const options: FollowUpReviewOptions = {
+    days: readPositiveInteger(process.env.JAA_FOLLOW_UP_EMAIL_DAYS, 21),
+    limit: readPositiveInteger(process.env.JAA_FOLLOW_UP_EMAIL_LIMIT, 30),
+    accountCount: readPositiveInteger(process.env.JAA_GMAIL_ACCOUNT_COUNT, 2),
+    query: process.env.JAA_FOLLOW_UP_GMAIL_QUERY?.trim() || "",
+    readBodies: isTruthyEnv(process.env.JAA_FOLLOW_UP_READ_BODIES),
+    updateStatuses: !isTruthyEnv(process.env.JAA_FOLLOW_UP_NO_STATUS_UPDATE),
+    includeStaleApplications: !isTruthyEnv(process.env.JAA_FOLLOW_UP_NO_STALE_APPLICATIONS),
+    staleApplicationLimit: readPositiveInteger(process.env.JAA_FOLLOW_UP_STALE_LIMIT, 12),
+    followUpAfterDays: readPositiveInteger(process.env.JAA_FOLLOW_UP_AFTER_DAYS, 7),
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const next = args[index + 1];
+
+    if (arg === "--days" && next) {
+      options.days = readPositiveInteger(next, options.days);
+      index += 1;
+    } else if (arg.startsWith("--days=")) {
+      options.days = readPositiveInteger(arg.slice("--days=".length), options.days);
+    } else if (arg === "--limit" && next) {
+      options.limit = readPositiveInteger(next, options.limit);
+      index += 1;
+    } else if (arg.startsWith("--limit=")) {
+      options.limit = readPositiveInteger(arg.slice("--limit=".length), options.limit);
+    } else if (arg === "--accounts" && next) {
+      options.accountCount = readPositiveInteger(next, options.accountCount);
+      index += 1;
+    } else if (arg.startsWith("--accounts=")) {
+      options.accountCount = readPositiveInteger(arg.slice("--accounts=".length), options.accountCount);
+    } else if (arg === "--query" && next) {
+      options.query = next.trim();
+      index += 1;
+    } else if (arg.startsWith("--query=")) {
+      options.query = arg.slice("--query=".length).trim();
+    } else if (arg === "--read-bodies") {
+      options.readBodies = true;
+    } else if (arg === "--no-status-update") {
+      options.updateStatuses = false;
+    } else if (arg === "--no-stale") {
+      options.includeStaleApplications = false;
+    } else if (arg === "--stale-limit" && next) {
+      options.staleApplicationLimit = readPositiveInteger(next, options.staleApplicationLimit);
+      index += 1;
+    } else if (arg.startsWith("--stale-limit=")) {
+      options.staleApplicationLimit = readPositiveInteger(arg.slice("--stale-limit=".length), options.staleApplicationLimit);
+    } else if (arg === "--follow-up-after-days" && next) {
+      options.followUpAfterDays = readPositiveInteger(next, options.followUpAfterDays);
+      index += 1;
+    } else if (arg.startsWith("--follow-up-after-days=")) {
+      options.followUpAfterDays = readPositiveInteger(
+        arg.slice("--follow-up-after-days=".length),
+        options.followUpAfterDays,
+      );
+    }
+  }
+
+  options.days = Math.max(1, Math.min(options.days, 90));
+  options.limit = Math.max(1, Math.min(options.limit, 100));
+  options.accountCount = Math.max(1, Math.min(options.accountCount, 5));
+  options.staleApplicationLimit = Math.max(0, Math.min(options.staleApplicationLimit, 100));
+  options.followUpAfterDays = Math.max(1, Math.min(options.followUpAfterDays, 60));
+
+  return options;
+}
+
+async function browserReviewFollowUps(args: string[] = []): Promise<void> {
+  const options = parseFollowUpReviewOptions(args);
+  const jobs = await getJobs();
+  const existingActions = await getFollowUpActions();
+
+  print(
+    `Scanning Gmail follow-ups from the attached Chrome session (${options.days} days, ${options.accountCount} account${options.accountCount === 1 ? "" : "s"}).`,
+  );
+
+  const emails = await scanAttachedGmailFollowUpEmails({
+    days: options.days,
+    limit: options.limit,
+    accountCount: options.accountCount,
+    query: options.query,
+    readBodies: options.readBodies,
+  });
+
+  const reconciled = reconcileFollowUpActions({
+    existingActions,
+    emails,
+    jobs,
+    includeStaleApplications: options.includeStaleApplications,
+    staleApplicationLimit: options.staleApplicationLimit,
+    followUpAfterDays: options.followUpAfterDays,
+  });
+
+  await saveFollowUpActions(reconciled.actions);
+
+  let jobUpdateCount = 0;
+  if (options.updateStatuses) {
+    const jobUpdateResult = applyFollowUpActionsToJobs(jobs, reconciled.incomingActions);
+    if (jobUpdateResult.updates.length > 0) {
+      await saveJobs(jobUpdateResult.jobs);
+      jobUpdateCount = jobUpdateResult.updates.length;
+    }
+  }
+
+  printFollowUpReviewResult({
+    emailsScanned: emails.length,
+    createdCount: reconciled.createdCount,
+    updatedCount: reconciled.updatedCount,
+    staleApplicationCount: reconciled.staleApplicationCount,
+    jobUpdateCount,
+    actions: reconciled.actions,
+  });
+}
+
+function printFollowUpReviewResult(result: {
+  emailsScanned: number;
+  createdCount: number;
+  updatedCount: number;
+  staleApplicationCount: number;
+  jobUpdateCount: number;
+  actions: FollowUpAction[];
+}): void {
+  const openActions = result.actions
+    .filter((action) => action.status === "open")
+    .sort(sortFollowUpActions)
+    .slice(0, 12);
+
+  const lines = [
+    `Emails scanned: ${result.emailsScanned}`,
+    `Follow-up actions created: ${result.createdCount}`,
+    `Follow-up actions updated: ${result.updatedCount}`,
+    `Stale applied-job follow-ups added: ${result.staleApplicationCount}`,
+    `Job statuses updated: ${result.jobUpdateCount}`,
+    `Open follow-ups: ${result.actions.filter((action) => action.status === "open").length}`,
+  ];
+
+  if (openActions.length > 0) {
+    lines.push("", "Next actions:");
+    for (const [index, action] of openActions.entries()) {
+      lines.push(
+        `${index + 1}. ${action.priority.toUpperCase()} | ${formatFollowUpCategory(action.category)} | ${action.jobTitle} @ ${action.company}`,
+      );
+      lines.push(`   ${action.nextAction}`);
+      lines.push(`   Due: ${action.dueAt.slice(0, 10)} | Subject: ${action.subject}`);
+    }
+  }
+
+  print(lines.join("\n"));
+}
+
+function formatFollowUpCategory(value: string): string {
+  return value
+    .split("_")
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
 function browserAttachHelp(): void {
   print(
     [
@@ -2912,6 +3090,7 @@ function browserAttachHelp(): void {
       "npm run cli -- browser save-remote-jobs   Save or dismiss jobs from LinkedIn Remote Jobs",
       "npm run cli -- browser apply-saved-jobs   Apply the visible tracker jobs from LinkedIn Jobs Tracker",
       "npm run cli -- browser apply-job-url <url>   Apply one tracker job by URL",
+      "npm run cli -- browser review-follow-ups   Read Gmail follow-up emails and update next actions",
       "npm run cli -- browser start-autopilot   Batch save Remote Jobs",
       "npm run cli -- browser start-full-autopilot   Batch apply Jobs Tracker jobs",
       "npm run cli -- browser attach-help   Setup instructions for browser automation",
@@ -2984,6 +3163,7 @@ function printHelp(): void {
       "/browser save-remote-jobs   Save or dismiss jobs from LinkedIn Remote Jobs",
       "/browser apply-saved-jobs   Apply the visible tracker jobs from LinkedIn Jobs Tracker",
       "/browser apply-job-url <url>   Apply one tracker job by URL",
+      "/browser review-follow-ups   Read Gmail follow-up emails and update next actions",
       "/browser start-autopilot   Batch save Remote Jobs",
       "/browser start-full-autopilot   Batch apply Jobs Tracker jobs",
       "/browser attach-help   Setup instructions for browser automation",
@@ -3016,6 +3196,7 @@ function printHelp(): void {
       "/browser process-visible-external-jobs",
       "/browser export-external-apply-urls",
       "/browser triage-visible-jobs",
+      "/browser review-follow-ups [--days 21] [--limit 30] [--read-bodies]",
       "/quit",
     ].join("\n"),
   );
@@ -3196,6 +3377,11 @@ async function chatMode(): Promise<void> {
 
     if (line === "/browser apply-saved-jobs" || line === "/browser auto-apply-saved-jobs") {
       await browserApplySavedJobs();
+      continue;
+    }
+
+    if (line === "/browser review-follow-ups" || line.startsWith("/browser review-follow-ups ")) {
+      await browserReviewFollowUps(line.replace("/browser review-follow-ups", "").trim().split(/\s+/).filter(Boolean));
       continue;
     }
 
@@ -3495,6 +3681,13 @@ async function main(): Promise<void> {
     if (scope === "browser" && (action === "apply-saved-jobs" || action === "auto-apply-saved-jobs")) {
       rl.close();
       await browserApplySavedJobs();
+      process.exit(0);
+      return;
+    }
+
+    if (scope === "browser" && action === "review-follow-ups") {
+      rl.close();
+      await browserReviewFollowUps(rest);
       process.exit(0);
       return;
     }
